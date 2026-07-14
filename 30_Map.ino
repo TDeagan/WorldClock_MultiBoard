@@ -1,3 +1,4 @@
+// v4.2: drawMap() is invoked only by the unified full-display scheduler.
 void solarPositionUTC(
   const tm &utc,
   double &declination,

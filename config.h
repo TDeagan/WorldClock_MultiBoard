@@ -190,11 +190,23 @@ static constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS =
 static constexpr unsigned long NTP_SYNC_TIMEOUT_MS =
   30000UL;
 
+// Unified wall-clock scheduler.
+//
+// The status line updates on 30-second UTC epoch boundaries.
+// All astronomy/map elements update together on five-minute boundaries.
+static constexpr time_t CLOCK_UPDATE_SECONDS =
+  30;
+
+static constexpr time_t ASTRONOMY_UPDATE_SECONDS =
+  5 * 60;
+
+// Retained compatibility aliases. The application scheduler no longer
+// runs separate map and ISS refresh timers.
 static constexpr unsigned long CLOCK_UPDATE_MS =
-  30000UL;
+  CLOCK_UPDATE_SECONDS * 1000UL;
 
 static constexpr unsigned long MAP_UPDATE_MS =
-  60000UL;
+  ASTRONOMY_UPDATE_SECONDS * 1000UL;
 
 static constexpr unsigned long SD_RETRY_MS =
   5000UL;
@@ -202,8 +214,9 @@ static constexpr unsigned long SD_RETRY_MS =
 static constexpr unsigned long WIFI_RETRY_MS =
   10000UL;
 
+// ISS refresh is now part of the unified astronomy update.
 static constexpr unsigned long ISS_UPDATE_MS =
-  20000UL;
+  ASTRONOMY_UPDATE_SECONDS * 1000UL;
 
 static constexpr unsigned long NTP_RETRY_MS =
   3600000UL;
@@ -212,7 +225,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "4.1";
+  "4.2";
 
 // ============================================================
 // STARTUP SPLASH
@@ -371,6 +384,7 @@ extern unsigned long lastNtpRetry;
 // Main application
 void initializeWorldClock();
 void serviceWorldClock();
+void updateAstronomy();
 void showSplashScreen();
 void drawIpAddress();
 void redrawWorldClock();

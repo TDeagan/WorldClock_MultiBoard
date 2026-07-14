@@ -1,3 +1,4 @@
+// v4.2: drawClock() is invoked on aligned 30-second boundaries and after full redraws.
 // ============================================================
 // Clock display and configured network/time operation
 // ============================================================
