@@ -37,8 +37,9 @@ void drawIpAddress() {
     return;
   }
 
-  const String ipText =
-    WiFi.localIP().toString();
+const String ipText =
+  String("http://") +
+  WiFi.localIP().toString();
 
   // Font0 is the smallest built-in LovyanGFX font.
   // A 15-character IPv4 address fits comfortably in this area.

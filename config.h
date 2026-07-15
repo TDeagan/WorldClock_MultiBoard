@@ -100,9 +100,9 @@ static constexpr int STATUS_BAR_Y = SCREEN_MAP_H;
 static constexpr int STATUS_BAR_HEIGHT = STATUS_H;
 static constexpr int CLOCK_TEXT_Y = SCREEN_MAP_H + STATUS_H / 2 - 4;
 static constexpr int IP_TEXT_Y = 232;
-static constexpr int IP_BACKGROUND_X = 98;
+static constexpr int IP_BACKGROUND_X = 88;
 static constexpr int IP_BACKGROUND_Y = 232;
-static constexpr int IP_BACKGROUND_W = 124;
+static constexpr int IP_BACKGROUND_W = 144;
 static constexpr int IP_BACKGROUND_H = 8;
 static constexpr uint16_t STATUS_BACKGROUND_COLOR = TFT_BLACK;
 static constexpr uint16_t STATUS_TEXT_COLOR = TFT_CYAN;
@@ -274,7 +274,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "4.7";
+  "4.7.1";
 
 // ============================================================
 // STARTUP SPLASH
