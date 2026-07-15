@@ -210,3 +210,16 @@ void drawIssMarker() {
     );
   }
 }
+
+void renderIssTrackOverlay() {
+  if (!overlaySettings.showIssTrack) {
+    return;
+  }
+
+  drawIssOrbitTrack();
+}
+
+
+void renderIssOverlay() {
+  drawIssMarker();
+}

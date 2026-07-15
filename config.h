@@ -225,7 +225,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "4.2";
+  "4.3";
 
 // ============================================================
 // STARTUP SPLASH
@@ -341,6 +341,15 @@ struct SystemStatus {
   String lastErrorText;
 };
 
+struct RenderState {
+  time_t epoch = 0;
+  bool fullRedrawInProgress = false;
+  bool baseLayerDrawn = false;
+  bool overlayLayersDrawn = false;
+  bool statusLayerDrawn = false;
+};
+
+
 // ============================================================
 // SHARED OBJECTS AND STATE
 // ============================================================
@@ -375,6 +384,7 @@ extern IssPosition issPosition;
 extern OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];
 extern bool issTrackValid;
 extern SystemStatus systemStatus;
+extern RenderState renderState;
 extern unsigned long lastNtpRetry;
 
 // ============================================================
@@ -387,6 +397,11 @@ void serviceWorldClock();
 void updateAstronomy();
 void showSplashScreen();
 void drawIpAddress();
+
+// Rendering engine
+bool renderWorldDisplay();
+void renderOverlayLayers(time_t epoch);
+void renderStatusBar();
 void redrawWorldClock();
 void setSystemError(SystemError error, const String &text);
 const char *systemErrorName(SystemError error);
@@ -470,6 +485,7 @@ uint16_t blend565(
 );
 
 bool drawMap(const tm &utc);
+bool renderBaseMapLayer(time_t epoch);
 
 // Sun and Moon
 void calculateMoonInfo(
@@ -489,11 +505,18 @@ void drawWrappedMoonPhase(
   bool waxing
 );
 
+void renderSunOverlay(time_t epoch);
+void renderMoonOverlay(time_t epoch);
+void renderCelestialOverlays(time_t epoch);
+
+// Compatibility entry point retained for existing code.
 void drawCelestialMarkers(time_t epoch);
 
 // ISS
 bool fetchIssPosition();
 void drawIssMarker();
+void renderIssOverlay();
+void renderIssTrackOverlay();
 
 // ISS one-orbit track
 void calculateIssOrbitTrack();

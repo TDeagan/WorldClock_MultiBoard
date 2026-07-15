@@ -434,15 +434,19 @@ void drawWrappedMoonPhase(
 }
 
 
-void drawCelestialMarkers(time_t epoch) {
-  tm utc {};
-  gmtime_r(&epoch, &utc);
+void renderSunOverlay(time_t epoch) {
+  if (!overlaySettings.showSun) {
+    return;
+  }
+
+  tm utcTm {};
+  gmtime_r(&epoch, &utcTm);
 
   double solarDeclination = 0.0;
   double subsolarLongitude = 0.0;
 
   solarPositionUTC(
-    utc,
+    utcTm,
     solarDeclination,
     subsolarLongitude
   );
@@ -456,6 +460,18 @@ void drawCelestialMarkers(time_t epoch) {
     latitudeToY(
       radToDeg(solarDeclination)
     );
+
+  drawWrappedSunDisc(
+    sunX,
+    sunY
+  );
+}
+
+
+void renderMoonOverlay(time_t epoch) {
+  if (!overlaySettings.showMoon) {
+    return;
+  }
 
   double moonLatitude = 0.0;
   double moonLongitude = 0.0;
@@ -480,19 +496,23 @@ void drawCelestialMarkers(time_t epoch) {
       moonLatitude
     );
 
-  if (overlaySettings.showSun) {
-    drawWrappedSunDisc(
-      sunX,
-      sunY
-    );
-  }
+  drawWrappedMoonPhase(
+    moonX,
+    moonY,
+    moonElongation,
+    moonWaxing
+  );
+}
 
-  if (overlaySettings.showMoon) {
-    drawWrappedMoonPhase(
-      moonX,
-      moonY,
-      moonElongation,
-      moonWaxing
-    );
-  }
+
+void renderCelestialOverlays(time_t epoch) {
+  renderSunOverlay(epoch);
+  renderMoonOverlay(epoch);
+}
+
+
+// Compatibility wrapper retained so older code or future patches that
+// call drawCelestialMarkers() continue to compile.
+void drawCelestialMarkers(time_t epoch) {
+  renderCelestialOverlays(epoch);
 }

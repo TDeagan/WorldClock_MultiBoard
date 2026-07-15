@@ -1,33 +1,46 @@
-World Clock v4.2 unified-scheduler patch
+World Clock v4.3 rendering-engine patch
 
-Replace these four files in the working v4.1 project:
+Replace these existing files in the working v4.2 project:
 
   config.h
   30_Map.ino
-  50_ClockNetwork.ino
+  40_SunMoon.ino
+  65_ISS.ino
   90_Application.ino
 
-Behavior:
+Add this new Arduino tab:
 
-  Clock/status update:
-    every 30 seconds, aligned to :00 and :30
+  35_RenderEngine.ino
 
-  Full astronomy update:
-    every 5 minutes, aligned to :00, :05, :10, etc.
+What changed:
 
-Each full update performs one coordinated operation:
+  - Firmware version is now 4.3.
+  - One module owns the complete full-display rendering order.
+  - 90_Application.ino no longer calls individual map/overlay functions.
+  - The Sun and Moon have separate overlay renderers.
+  - ISS track and marker have rendering wrappers.
+  - Status-only clock updates call renderStatusBar().
+  - redrawWorldClock() remains as a compatibility entry point for the
+    runtime web configuration, map maintenance, and recovery code.
+  - A RenderState structure records which layers completed during the
+    most recent full redraw.
 
-  1. Fetch current ISS position, when ISS or track is enabled
-  2. Recalculate ISS track
-  3. Recalculate and draw the terminator
-  4. Draw ISS track
-  5. Recalculate and draw Sun and Moon
-  6. Draw ISS marker
-  7. Draw clock and IP address
+Rendering order:
 
-The prior independent 20-second ISS and 60-second map redraw schedules are no
-longer used by the application loop.
+  1. Earth map and terminator
+  2. ISS orbit track
+  3. Sun
+  4. Moon
+  5. ISS marker
+  6. Clock/status bar and IP address
 
-Wi-Fi, NTP, and storage recovery retries remain on their original schedules.
-This allows failures to recover promptly without waiting for a five-minute
-display boundary.
+No changes were made to:
+
+  - the v4.2 unified scheduler;
+  - astronomy calculations;
+  - ISS retrieval or orbit calculations;
+  - Wi-Fi or captive portal behavior;
+  - SD cache behavior;
+  - diagnostics or map maintenance;
+  - board profiles;
+  - splash screen.

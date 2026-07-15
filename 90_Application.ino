@@ -81,39 +81,7 @@ void updateAstronomy() {
   }
 }
 
-void redrawWorldClock() {
-  if (
-    !timeValid ||
-    !sdReady
-  ) {
-    return;
-  }
 
-  const time_t now =
-    time(nullptr);
-
-  tm utcTm {};
-  gmtime_r(&now, &utcTm);
-
-  if (!drawMap(utcTm)) {
-    sdReady = false;
-
-    setSystemError(
-      SystemError::SdUnavailable,
-      "Map scanline read failed"
-    );
-
-    return;
-  }
-
-  // One coordinated drawing pipeline for every full display refresh.
-  drawIssOrbitTrack();
-  drawCelestialMarkers(now);
-  drawIssMarker();
-  drawClock();
-
-  lastMapUpdate = millis();
-}
 
 void initializeWorldClock() {
   Serial.begin(115200);
@@ -327,7 +295,7 @@ void serviceWorldClock() {
     lastClockBucket =
       clockBucket;
 
-    drawClock();
+    renderStatusBar();
     lastClockUpdate = nowMs;
   }
 
