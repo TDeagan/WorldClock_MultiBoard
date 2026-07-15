@@ -246,7 +246,7 @@ String configurationPage(
     "button{width:100%;margin-top:22px;padding:12px;border:0;border-radius:8px;"
     "background:#ffd43b;color:#111;font-size:1.05rem;font-weight:bold}"
     ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}"
-    ".row{display:flex;gap:10px}.sign{width:86px;flex:0 0 86px}"
+    ".row{display:flex;gap:10px}.sign{width:86px;flex:0 0 86px}.hemisphere{width:125px;flex:0 0 125px}"
     ".grow{flex:1}.check{display:flex;align-items:center;gap:8px;margin-top:10px;"
     "font-weight:normal}.check input{width:auto;margin:0}"
     ".msg{padding:10px;border-radius:7px;margin-bottom:12px;background:#24435a}"
@@ -375,30 +375,68 @@ String configurationPage(
   page += F(
     ">Show seconds</label>"
     "<label>Home location and grid</label>"
-    "<label>Latitude (-90 to 90)</label>"
-    "<input name=\"homeLatitude\" type=\"text\" inputmode=\"decimal\" "
-    "maxlength=\"12\" value=\""
+    "<label>Latitude</label>"
+    "<div class=\"row\">"
+    "<select class=\"hemisphere\" name=\"homeLatitudeSign\">"
+    "<option value=\"+\""
   );
 
-  page +=
-    formatCoordinateInput(
-      locationGridSettings.homeLatitude
-    );
+  if (locationGridSettings.homeLatitude >= 0.0) {
+    page += F(" selected");
+  }
 
   page += F(
-    "\">"
-    "<label>Longitude (-180 to 180)</label>"
-    "<input name=\"homeLongitude\" type=\"text\" inputmode=\"decimal\" "
-    "maxlength=\"13\" value=\""
+    ">North (+)</option><option value=\"-\""
   );
 
-  page +=
-    formatCoordinateInput(
-      locationGridSettings.homeLongitude
-    );
+  if (locationGridSettings.homeLatitude < 0.0) {
+    page += F(" selected");
+  }
 
   page += F(
-    "\">"
+    ">South (-)</option></select>"
+    "<input class=\"grow\" name=\"homeLatitudeMagnitude\" "
+    "type=\"number\" min=\"0\" max=\"90\" step=\"any\" "
+    "inputmode=\"decimal\" required value=\""
+  );
+
+  page += formatCoordinateInput(
+    fabs(locationGridSettings.homeLatitude)
+  );
+
+  page += F(
+    "\"></div>"
+    "<label>Longitude</label>"
+    "<div class=\"row\">"
+    "<select class=\"hemisphere\" name=\"homeLongitudeSign\">"
+    "<option value=\"+\""
+  );
+
+  if (locationGridSettings.homeLongitude >= 0.0) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">East (+)</option><option value=\"-\""
+  );
+
+  if (locationGridSettings.homeLongitude < 0.0) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">West (-)</option></select>"
+    "<input class=\"grow\" name=\"homeLongitudeMagnitude\" "
+    "type=\"number\" min=\"0\" max=\"180\" step=\"any\" "
+    "inputmode=\"decimal\" required value=\""
+  );
+
+  page += formatCoordinateInput(
+    fabs(locationGridSettings.homeLongitude)
+  );
+
+  page += F(
+    "\"></div>"
     "<label class=\"check\"><input type=\"checkbox\" "
     "name=\"showHomeMarker\" value=\"1\""
   );
@@ -563,31 +601,44 @@ void handleConfigurationSave() {
   double requestedHomeLatitude = 0.0;
   double requestedHomeLongitude = 0.0;
 
+  double latitudeMagnitude = 0.0;
+  double longitudeMagnitude = 0.0;
+
   if (
     !parseCoordinateValue(
-      portalServer.arg("homeLatitude"),
-      -90.0,
+      portalServer.arg("homeLatitudeMagnitude"),
+      0.0,
       90.0,
-      requestedHomeLatitude
+      latitudeMagnitude
     ) ||
     !parseCoordinateValue(
-      portalServer.arg("homeLongitude"),
-      -180.0,
+      portalServer.arg("homeLongitudeMagnitude"),
+      0.0,
       180.0,
-      requestedHomeLongitude
+      longitudeMagnitude
     )
   ) {
     portalServer.send(
       400,
       "text/html",
       configurationPage(
-        "Enter a latitude from -90 through 90 and a longitude "
-        "from -180 through 180.",
+        "Enter a latitude magnitude from 0 through 90 and a longitude "
+        "magnitude from 0 through 180.",
         true
       )
     );
     return;
   }
+
+  requestedHomeLatitude =
+    portalServer.arg("homeLatitudeSign") == "-"
+      ? -latitudeMagnitude
+      : latitudeMagnitude;
+
+  requestedHomeLongitude =
+    portalServer.arg("homeLongitudeSign") == "-"
+      ? -longitudeMagnitude
+      : longitudeMagnitude;
 
   if (
     !saveNetworkSettings(

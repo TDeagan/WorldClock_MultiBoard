@@ -1,6 +1,6 @@
 #include "config.h"
 
-// World Clock v4.0 — behavior-preserving multi-board build.
+// World Clock v4.7 — multi-board map-library build.
 // Select the target board with WORLDCLOCK_BOARD in config.h.
 
 void setup() {

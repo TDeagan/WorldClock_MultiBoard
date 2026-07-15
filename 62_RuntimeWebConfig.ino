@@ -18,9 +18,11 @@ unsigned long runtimeActionAt = 0;
 
 enum class RuntimeMapAction {
   None,
-  RebuildDay,
+  ApplyDayMap,
+  RebuildDayMap,
   RebuildNight,
-  RebuildBoth
+  RebuildAllDayMaps,
+  RebuildEverything
 };
 
 RuntimeMapAction runtimeMapActionPending =
@@ -29,6 +31,8 @@ RuntimeMapAction runtimeMapActionPending =
 unsigned long runtimeMapActionAt = 0;
 String runtimeMapResultMessage;
 bool runtimeMapResultError = false;
+String runtimeMapActionFilename;
+bool runtimeFullMapValidationRequested = false;
 
 String htmlEscapeRuntime(const String &input) {
   String output;
@@ -46,13 +50,39 @@ String htmlEscapeRuntime(const String &input) {
   return output;
 }
 
+
+String urlEncodeRuntime(const String &input) {
+  static const char hex[] = "0123456789ABCDEF";
+  String output;
+  output.reserve(input.length() * 3);
+
+  for (size_t index = 0; index < input.length(); ++index) {
+    const uint8_t value = static_cast<uint8_t>(input[index]);
+
+    if (
+      (value >= 'a' && value <= 'z') ||
+      (value >= 'A' && value <= 'Z') ||
+      (value >= '0' && value <= '9') ||
+      value == '-' || value == '_' || value == '.' || value == '~'
+    ) {
+      output += static_cast<char>(value);
+    } else {
+      output += '%';
+      output += hex[(value >> 4) & 0x0F];
+      output += hex[value & 0x0F];
+    }
+  }
+
+  return output;
+}
+
 String pageHeader(const String &title) {
   String page;
   page.reserve(10000);
   page += F("<!doctype html><html><head><meta name=\"viewport\" "
             "content=\"width=device-width,initial-scale=1\"><meta charset=\"utf-8\">"
             "<style>body{font-family:Arial,sans-serif;background:#101820;color:#f2f4f7;"
-            "margin:0;padding:20px}.card{max-width:620px;margin:auto;background:#1b2733;"
+            "margin:0;padding:20px}.card{max-width:900px;margin:auto;background:#1b2733;"
             "padding:22px;border-radius:12px}h1,h2{color:#ffd43b}a{color:#66d9ef}"
             "label{display:block;margin-top:14px;margin-bottom:6px;font-weight:bold}"
             "select,input{box-sizing:border-box;width:100%;padding:10px;border-radius:7px;"
@@ -61,13 +91,13 @@ String pageHeader(const String &title) {
             "padding:11px;border:0;border-radius:8px;background:#ffd43b;color:#111;"
             "font-weight:bold;text-align:center;text-decoration:none;font-size:1rem}"
             ".danger{background:#c94b50;color:white}"
-            ".row{display:flex;gap:10px}.sign{width:86px;flex:0 0 86px}.grow{flex:1}"
+            ".row{display:flex;gap:10px}.sign{width:86px;flex:0 0 86px}.hemisphere{width:125px;flex:0 0 125px}.grow{flex:1}"
             ".check{display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:normal}"
             ".check input{width:auto;margin:0}.msg{padding:10px;border-radius:7px;"
             "margin-bottom:12px;background:#24435a}.err{background:#6b2632}"
             "table{width:100%;border-collapse:collapse}td{padding:7px;border-bottom:1px solid #40505f}"
             "td:first-child{color:#bec8d2}.nav{margin-bottom:16px}.nav a{margin-right:14px}"
-            ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}</style><title>");
+            ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}.map-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.map-card{border:1px solid #40505f;border-radius:10px;padding:12px;background:#14212c}.map-card.selected{border-color:#ffd43b}.map-card h3{overflow-wrap:anywhere;margin:10px 0}.map-thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#05080b;border-radius:7px}.badge{display:inline-block;padding:4px 7px;border-radius:999px;margin:2px 4px 2px 0;font-size:.82rem;background:#40505f}.ok{background:#28603d}.bad{background:#7a2f3b}.selected-badge{background:#7b6418}.small-button{margin-top:9px;padding:8px;font-size:.9rem}.muted{opacity:.65}</style><title>");
   page += htmlEscapeRuntime(title);
   page += F("</title></head><body><div class=\"card\"><div class=\"nav\">"
             "<a href=\"/\">Settings</a><a href=\"/diagnostics\">Diagnostics</a>"
@@ -401,30 +431,68 @@ String runtimeConfigurationPage(
     ">Flipped 180 degrees</option>"
     "</select>"
     "<label>Home location and grid</label>"
-    "<label>Latitude (-90 to 90)</label>"
-    "<input id=\"homeLatitude\" type=\"text\" inputmode=\"decimal\" "
-    "maxlength=\"12\" value=\""
+    "<label>Latitude</label>"
+    "<div class=\"row\">"
+    "<select class=\"hemisphere\" id=\"homeLatitudeSign\">"
+    "<option value=\"+\""
   );
 
-  page +=
-    formatCoordinateInput(
-      locationGridSettings.homeLatitude
-    );
+  if (locationGridSettings.homeLatitude >= 0.0) {
+    page += F(" selected");
+  }
 
   page += F(
-    "\">"
-    "<label>Longitude (-180 to 180)</label>"
-    "<input id=\"homeLongitude\" type=\"text\" inputmode=\"decimal\" "
-    "maxlength=\"13\" value=\""
+    ">North (+)</option><option value=\"-\""
   );
 
-  page +=
-    formatCoordinateInput(
-      locationGridSettings.homeLongitude
-    );
+  if (locationGridSettings.homeLatitude < 0.0) {
+    page += F(" selected");
+  }
 
   page += F(
-    "\">"
+    ">South (-)</option></select>"
+    "<input class=\"grow\" id=\"homeLatitudeMagnitude\" "
+    "type=\"number\" min=\"0\" max=\"90\" step=\"any\" "
+    "inputmode=\"decimal\" required value=\""
+  );
+
+  page += formatCoordinateInput(
+    fabs(locationGridSettings.homeLatitude)
+  );
+
+  page += F(
+    "\"></div>"
+    "<label>Longitude</label>"
+    "<div class=\"row\">"
+    "<select class=\"hemisphere\" id=\"homeLongitudeSign\">"
+    "<option value=\"+\""
+  );
+
+  if (locationGridSettings.homeLongitude >= 0.0) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">East (+)</option><option value=\"-\""
+  );
+
+  if (locationGridSettings.homeLongitude < 0.0) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">West (-)</option></select>"
+    "<input class=\"grow\" id=\"homeLongitudeMagnitude\" "
+    "type=\"number\" min=\"0\" max=\"180\" step=\"any\" "
+    "inputmode=\"decimal\" required value=\""
+  );
+
+  page += formatCoordinateInput(
+    fabs(locationGridSettings.homeLongitude)
+  );
+
+  page += F(
+    "\"></div>"
     "<label class=\"check\">"
     "<input type=\"checkbox\" id=\"showHomeMarker\""
   );
@@ -519,8 +587,10 @@ String runtimeConfigurationPage(
         "add('offsetMagnitude',document.getElementById('offsetMagnitude').value);"
         "add('use24Hour',document.getElementById('use24Hour').value);"
         "add('flip180',document.getElementById('flip180').value);"
-        "add('homeLatitude',document.getElementById('homeLatitude').value);"
-        "add('homeLongitude',document.getElementById('homeLongitude').value);"
+        "add('homeLatitudeSign',document.getElementById('homeLatitudeSign').value);"
+        "add('homeLatitudeMagnitude',document.getElementById('homeLatitudeMagnitude').value);"
+        "add('homeLongitudeSign',document.getElementById('homeLongitudeSign').value);"
+        "add('homeLongitudeMagnitude',document.getElementById('homeLongitudeMagnitude').value);"
         "var checks=['showSeconds','showHomeMarker','showCoordinateGrid',"
           "'showSun','showMoon','showISS','showIssTrack','issTrackDotted'];"
         "for(var i=0;i<checks.length;i++){"
@@ -573,8 +643,10 @@ void handleRuntimeSave() {
     !runtimeServer.hasArg("offsetSign") ||
     !runtimeServer.hasArg("use24Hour") ||
     !runtimeServer.hasArg("flip180") ||
-    !runtimeServer.hasArg("homeLatitude") ||
-    !runtimeServer.hasArg("homeLongitude")
+    !runtimeServer.hasArg("homeLatitudeSign") ||
+    !runtimeServer.hasArg("homeLatitudeMagnitude") ||
+    !runtimeServer.hasArg("homeLongitudeSign") ||
+    !runtimeServer.hasArg("homeLongitudeMagnitude")
   ) {
     sendRuntimeHtml(
       400,
@@ -636,30 +708,43 @@ void handleRuntimeSave() {
   double requestedHomeLatitude = 0.0;
   double requestedHomeLongitude = 0.0;
 
+  double latitudeMagnitude = 0.0;
+  double longitudeMagnitude = 0.0;
+
   if (
     !parseCoordinateValue(
-      runtimeServer.arg("homeLatitude"),
-      -90.0,
+      runtimeServer.arg("homeLatitudeMagnitude"),
+      0.0,
       90.0,
-      requestedHomeLatitude
+      latitudeMagnitude
     ) ||
     !parseCoordinateValue(
-      runtimeServer.arg("homeLongitude"),
-      -180.0,
+      runtimeServer.arg("homeLongitudeMagnitude"),
+      0.0,
       180.0,
-      requestedHomeLongitude
+      longitudeMagnitude
     )
   ) {
     sendRuntimeHtml(
       400,
       runtimeConfigurationPage(
-        "Enter a latitude from -90 through 90 and a longitude "
-        "from -180 through 180.",
+        "Enter a latitude magnitude from 0 through 90 and a longitude "
+        "magnitude from 0 through 180.",
         true
       )
     );
     return;
   }
+
+  requestedHomeLatitude =
+    runtimeServer.arg("homeLatitudeSign") == "-"
+      ? -latitudeMagnitude
+      : latitudeMagnitude;
+
+  requestedHomeLongitude =
+    runtimeServer.arg("homeLongitudeSign") == "-"
+      ? -longitudeMagnitude
+      : longitudeMagnitude;
 
   const bool requested24Hour =
     runtimeServer.arg("use24Hour") != "0";
@@ -878,20 +963,63 @@ void handleValidateMaps() {
     runtimeMethodName()
   );
 
-  refreshStorageStatus();
-
-  sendRuntimeHtml(
-    200,
-    buildMapMaintenancePage(
-      "Validation complete."
-    )
+  runtimeFullMapValidationRequested = true;
+  const String page = buildMapMaintenancePage(
+    "Full PNG and CRC validation complete."
   );
+  runtimeFullMapValidationRequested = false;
+
+  sendRuntimeHtml(200, page);
+}
+
+
+void sendMapPngFile(
+  const String &path
+) {
+  File image = SD.open(path.c_str(), FILE_READ);
+
+  if (!image) {
+    runtimeServer.send(404, "text/plain", "Map image not found");
+    return;
+  }
+
+  runtimeServer.sendHeader(
+    "Cache-Control",
+    "private, max-age=60"
+  );
+
+  runtimeServer.streamFile(
+    image,
+    "image/png"
+  );
+
+  image.close();
+}
+
+
+void handleMapPreview() {
+  const String filename = runtimeServer.arg("file");
+
+  if (!isSafeDayMapFilename(filename)) {
+    runtimeServer.send(400, "text/plain", "Invalid map filename");
+    return;
+  }
+
+  sendMapPngFile(
+    dayMapPngPath(filename)
+  );
+}
+
+
+void handleNightMapPreview() {
+  sendMapPngFile(NIGHT_PNG_FILE);
 }
 
 
 void scheduleMapAction(
   RuntimeMapAction action,
-  const String &label
+  const String &label,
+  const String &filename = ""
 ) {
   Serial.printf(
     "Runtime web: %s %s\n",
@@ -914,6 +1042,7 @@ void scheduleMapAction(
   }
 
   runtimeMapActionPending = action;
+  runtimeMapActionFilename = filename;
   runtimeMapActionAt = millis() + 250UL;
 
   runtimeServer.sendHeader(
@@ -927,17 +1056,71 @@ void scheduleMapAction(
       F("<p>") +
       htmlEscapeRuntime(label) +
       F(" has been scheduled.</p>"
-        "<p>This page will return to Map Maintenance automatically.</p>"
+        "<p>This page will return to Maps automatically.</p>"
         "<p><a href=\"/maps\">Check status now</a></p>") +
       pageFooter()
   );
 }
 
 
+void handleSelectMap() {
+  const String filename = runtimeServer.arg("file");
+
+  if (
+    !isSafeDayMapFilename(filename) ||
+    !pngMapIsValid(
+      dayMapPngPath(filename).c_str(),
+      false
+    )
+  ) {
+    sendRuntimeHtml(
+      400,
+      buildMapMaintenancePage(
+        "The selected daylight map is missing or invalid.",
+        true
+      )
+    );
+    return;
+  }
+
+  scheduleMapAction(
+    RuntimeMapAction::ApplyDayMap,
+    String("Apply ") + filename,
+    filename
+  );
+}
+
+
+void handleRebuildOneMap() {
+  const String filename = runtimeServer.arg("file");
+
+  if (
+    !isSafeDayMapFilename(filename) ||
+    !SD.exists(dayMapPngPath(filename).c_str())
+  ) {
+    sendRuntimeHtml(
+      400,
+      buildMapMaintenancePage(
+        "The requested daylight map was not found.",
+        true
+      )
+    );
+    return;
+  }
+
+  scheduleMapAction(
+    RuntimeMapAction::RebuildDayMap,
+    String("Rebuild cache for ") + filename,
+    filename
+  );
+}
+
+
 void handleRebuildDay() {
   scheduleMapAction(
-    RuntimeMapAction::RebuildDay,
-    "Day-map cache rebuild"
+    RuntimeMapAction::RebuildDayMap,
+    String("Rebuild cache for ") + selectedDayMapFilename,
+    selectedDayMapFilename
   );
 }
 
@@ -945,15 +1128,23 @@ void handleRebuildDay() {
 void handleRebuildNight() {
   scheduleMapAction(
     RuntimeMapAction::RebuildNight,
-    "Night-map cache rebuild"
+    "Shared night-map cache rebuild"
+  );
+}
+
+
+void handleRebuildAllDayMaps() {
+  scheduleMapAction(
+    RuntimeMapAction::RebuildAllDayMaps,
+    "All daylight-map caches rebuild"
   );
 }
 
 
 void handleRebuildBoth() {
   scheduleMapAction(
-    RuntimeMapAction::RebuildBoth,
-    "Day and night cache rebuild"
+    RuntimeMapAction::RebuildEverything,
+    "All daylight and shared night caches rebuild"
   );
 }
 } // namespace
@@ -1046,6 +1237,9 @@ String buildDiagnosticsPage() {
   row("Last NTP sync", formatAge(systemStatus.lastNtpSync));
   row("Last full map render", formatElapsedAge(lastMapUpdate));
   row("microSD", systemStatus.sdMounted ? "Mounted" : "Unavailable");
+  row("Selected daylight map", selectedDayMapFilename);
+  row("Day PNG path", activeDayPngPath);
+  row("Day cache path", activeDayRawPath);
   row("Day PNG", systemStatus.dayPngFound ? "Found" : "Missing");
   row("Night PNG", systemStatus.nightPngFound ? "Found" : "Missing");
   row("Day cache", systemStatus.dayCacheValid ? "Valid" : "Invalid");
@@ -1062,26 +1256,213 @@ String buildDiagnosticsPage() {
   return page;
 }
 
-String buildMapMaintenancePage(const String &message, bool error) {
+String buildMapMaintenancePage(
+  const String &message,
+  bool error
+) {
   refreshStorageStatus();
-  String page = pageHeader("Map Maintenance");
-  if (message.length()) { page += F("<div class=\"msg"); if (error) page += F(" err"); page += F("\">"); page += htmlEscapeRuntime(message); page += F("</div>"); }
-  page += F("<table>");
+
+  DaylightMapInfo maps[MAX_DAYLIGHT_MAPS];
+  size_t totalMapCount = 0;
+  const size_t mapCount = scanDaylightMaps(
+    maps,
+    MAX_DAYLIGHT_MAPS,
+    runtimeFullMapValidationRequested,
+    &totalMapCount
+  );
+
+  const bool nightPngExists =
+    SD.exists(NIGHT_PNG_FILE);
+
+  const bool nightPngValid =
+    nightPngExists &&
+    pngMapIsValid(
+      NIGHT_PNG_FILE,
+      runtimeFullMapValidationRequested
+    );
+
+  const bool nightCacheValid =
+    rawMapIsValid(NIGHT_RAW_FILE);
+
+  String page = pageHeader("Maps");
+
+  if (message.length()) {
+    page += F("<div class=\"msg");
+
+    if (error) {
+      page += F(" err");
+    }
+
+    page += F("\">");
+    page += htmlEscapeRuntime(message);
+    page += F("</div>");
+  }
+
+  page += F(
+    "<p class=\"note\">Daylight maps are discovered from <strong>/maps/</strong>. "
+    "Each PNG uses a same-name RGB565 cache. The night image and cache are shared "
+    "by every daylight map.</p>"
+    "<table>"
+  );
+
   auto row = [&](const String &name, const String &value) {
-    page += F("<tr><td>"); page += name; page += F("</td><td>"); page += htmlEscapeRuntime(value); page += F("</td></tr>");
+    page += F("<tr><td>");
+    page += htmlEscapeRuntime(name);
+    page += F("</td><td>");
+    page += htmlEscapeRuntime(value);
+    page += F("</td></tr>");
   };
+
+  row("Selected daylight map", selectedDayMapFilename);
   row("Expected cache size", String(RAW_MAP_BYTES) + " bytes");
-  row("Day PNG", systemStatus.dayPngFound ? String(fileSizeOrZero(DAY_PNG_FILE)) + " bytes" : "Missing");
-  row("Night PNG", systemStatus.nightPngFound ? String(fileSizeOrZero(NIGHT_PNG_FILE)) + " bytes" : "Missing");
-  row("Day RGB565", systemStatus.dayCacheValid ? String(fileSizeOrZero(DAY_RAW_FILE)) + " bytes; valid" : "Invalid or missing");
-  row("Night RGB565", systemStatus.nightCacheValid ? String(fileSizeOrZero(NIGHT_RAW_FILE)) + " bytes; valid" : "Invalid or missing");
-  page += F("</table>"
-            "<a class=\"button\" href=\"/maps/validate\">Validate files</a>"
-            "<a class=\"button\" href=\"/maps/rebuild-day\">Rebuild day cache</a>"
-            "<a class=\"button\" href=\"/maps/rebuild-night\">Rebuild night cache</a>"
-            "<a class=\"button\" href=\"/maps/rebuild-both\">Rebuild both caches</a>"
-            "<p class=\"note\">Rebuilding closes the active map files, converts the PNG, validates the 153,600-byte cache, reopens both maps, and redraws the clock.</p>");
-  page += pageFooter(); return page;
+  row("Maps discovered", String(totalMapCount));
+  row(
+    "Shared night source",
+    nightPngExists
+      ? String(fileSizeOrZero(NIGHT_PNG_FILE)) + " bytes"
+      : "Missing"
+  );
+  row(
+    "Shared night cache",
+    nightCacheValid
+      ? String(fileSizeOrZero(NIGHT_RAW_FILE)) + " bytes; valid"
+      : "Invalid or missing"
+  );
+
+  page += F(
+    "</table>"
+    "<a class=\"button\" href=\"/maps/validate\">Validate every PNG with CRC</a>"
+    "<a class=\"button\" href=\"/maps/rebuild-all\">Rebuild all daylight caches</a>"
+    "<a class=\"button\" href=\"/maps/rebuild-both\">Rebuild every cache</a>"
+    "<h2>Daylight maps</h2>"
+  );
+
+  if (mapCount == 0) {
+    page += F(
+      "<div class=\"msg err\">No .png files were found in /maps, or none could "
+      "be read from the microSD card.</div>"
+    );
+  } else {
+    page += F("<div class=\"map-grid\">");
+
+    for (size_t index = 0; index < mapCount; ++index) {
+      const DaylightMapInfo &map = maps[index];
+      const String encodedFilename =
+        urlEncodeRuntime(map.filename);
+
+      page += F("<div class=\"map-card");
+
+      if (map.selected) {
+        page += F(" selected");
+      }
+
+      page += F("\"><img class=\"map-thumb\" loading=\"lazy\" src=\"");
+      page += MAP_PREVIEW_PATH;
+      page += F("?file=");
+      page += encodedFilename;
+      page += F("\" alt=\"");
+      page += htmlEscapeRuntime(map.filename);
+      page += F(" preview\"><h3>");
+      page += htmlEscapeRuntime(map.filename);
+      page += F("</h3>");
+
+      if (map.selected) {
+        page += F("<span class=\"badge selected-badge\">Selected</span>");
+      }
+
+      if (map.pngValid) {
+        page += runtimeFullMapValidationRequested
+          ? F("<span class=\"badge ok\">PNG + CRC valid</span>")
+          : F("<span class=\"badge ok\">PNG geometry valid</span>");
+      } else {
+        page += F("<span class=\"badge bad\">PNG invalid</span>");
+      }
+
+      page += map.cacheValid
+        ? F("<span class=\"badge ok\">Cache valid</span>")
+        : F("<span class=\"badge bad\">Cache missing/invalid</span>");
+
+      page += F("<table><tr><td>PNG</td><td>");
+      page += String(map.pngBytes);
+      page += F(" bytes</td></tr><tr><td>Cache</td><td>");
+
+      if (map.rawBytes > 0) {
+        page += String(map.rawBytes);
+        page += F(" bytes");
+      } else {
+        page += F("Not present");
+      }
+
+      page += F("</td></tr></table>");
+
+      if (map.pngValid) {
+        if (!map.selected) {
+          page += F("<a class=\"button small-button\" href=\"");
+          page += MAP_SELECT_PATH;
+          page += F("?file=");
+          page += encodedFilename;
+          page += F("\">Select and apply</a>");
+        }
+
+        page += F("<a class=\"button small-button\" href=\"");
+        page += MAP_REBUILD_ONE_PATH;
+        page += F("?file=");
+        page += encodedFilename;
+        page += F("\">Rebuild this cache</a>");
+      } else {
+        page += F(
+          "<p class=\"note\">Not selectable. The PNG must decode successfully, "
+          "be exactly 320 × 240, and be non-interlaced.</p>"
+        );
+      }
+
+      page += F("</div>");
+    }
+
+    page += F("</div>");
+  }
+
+  if (totalMapCount > mapCount) {
+    page += F(
+      "<p class=\"note\">The page displays the first "
+    );
+    page += String(MAX_DAYLIGHT_MAPS);
+    page += F(
+      " PNG files alphabetically. Remove unused files if more are present.</p>"
+    );
+  }
+
+  page += F(
+    "<h2>Shared night map</h2>"
+    "<div class=\"map-card\">"
+    "<img class=\"map-thumb\" loading=\"lazy\" src=\"/maps/night-preview\" "
+    "alt=\"earth_night.png preview\">"
+    "<h3>earth_night.png</h3>"
+  );
+
+  if (nightPngValid) {
+    page += runtimeFullMapValidationRequested
+      ? F("<span class=\"badge ok\">PNG + CRC valid</span>")
+      : F("<span class=\"badge ok\">PNG geometry valid</span>");
+  } else {
+    page += F("<span class=\"badge bad\">PNG invalid/missing</span>");
+  }
+
+  page += nightCacheValid
+    ? F("<span class=\"badge ok\">Cache valid</span>")
+    : F("<span class=\"badge bad\">Cache missing/invalid</span>");
+
+  page += F(
+    "<a class=\"button small-button\" href=\"/maps/rebuild-night\">"
+    "Rebuild shared night cache</a></div>"
+    "<p class=\"note\">Selecting a daylight map stores only its filename in "
+    "Preferences. If that file is later missing or invalid, the firmware falls "
+    "back to earth_day.png when available, otherwise to the alphabetically first "
+    "valid PNG in /maps.</p>"
+  );
+
+  page += pageFooter();
+  return page;
 }
 
 void startRuntimeConfigServer() {
@@ -1115,6 +1496,31 @@ void startRuntimeConfigServer() {
     MAP_VALIDATE_PATH,
     HTTP_GET,
     handleValidateMaps
+  );
+  runtimeServer.on(
+    MAP_PREVIEW_PATH,
+    HTTP_GET,
+    handleMapPreview
+  );
+  runtimeServer.on(
+    MAP_NIGHT_PREVIEW_PATH,
+    HTTP_GET,
+    handleNightMapPreview
+  );
+  runtimeServer.on(
+    MAP_SELECT_PATH,
+    HTTP_GET,
+    handleSelectMap
+  );
+  runtimeServer.on(
+    MAP_REBUILD_ONE_PATH,
+    HTTP_GET,
+    handleRebuildOneMap
+  );
+  runtimeServer.on(
+    MAP_REBUILD_ALL_PATH,
+    HTTP_GET,
+    handleRebuildAllDayMaps
   );
 
   runtimeServer.on(
@@ -1256,26 +1662,48 @@ void serviceRuntimeConfigServer() {
 
     bool ok = false;
 
+    const String actionFilename =
+      runtimeMapActionFilename;
+
+    runtimeMapActionFilename = "";
+
     switch (action) {
-      case RuntimeMapAction::RebuildDay:
-        Serial.println(
-          "Runtime web: rebuilding day cache"
+      case RuntimeMapAction::ApplyDayMap:
+        Serial.printf(
+          "Runtime web: applying daylight map %s\n",
+          actionFilename.c_str()
         );
 
-        ok = rebuildMapCache(
-          true,
+        ok = activateDayMap(
+          actionFilename,
           false
         );
 
         runtimeMapResultMessage =
           ok
-            ? "Day cache rebuilt."
-            : "Day cache rebuild failed.";
+            ? actionFilename + " is now selected."
+            : "The daylight map could not be applied.";
+        break;
+
+      case RuntimeMapAction::RebuildDayMap:
+        Serial.printf(
+          "Runtime web: rebuilding cache for %s\n",
+          actionFilename.c_str()
+        );
+
+        ok = rebuildDayMapCache(
+          actionFilename
+        );
+
+        runtimeMapResultMessage =
+          ok
+            ? String("Cache rebuilt for ") + actionFilename + "."
+            : String("Cache rebuild failed for ") + actionFilename + ".";
         break;
 
       case RuntimeMapAction::RebuildNight:
         Serial.println(
-          "Runtime web: rebuilding night cache"
+          "Runtime web: rebuilding shared night cache"
         );
 
         ok = rebuildMapCache(
@@ -1285,24 +1713,41 @@ void serviceRuntimeConfigServer() {
 
         runtimeMapResultMessage =
           ok
-            ? "Night cache rebuilt."
-            : "Night cache rebuild failed.";
+            ? "Shared night cache rebuilt."
+            : "Shared night cache rebuild failed.";
         break;
 
-      case RuntimeMapAction::RebuildBoth:
+      case RuntimeMapAction::RebuildAllDayMaps:
         Serial.println(
-          "Runtime web: rebuilding both caches"
+          "Runtime web: rebuilding all daylight caches"
         );
 
-        ok = rebuildMapCache(
-          true,
-          true
-        );
+        ok = rebuildAllDayMapCaches();
 
         runtimeMapResultMessage =
           ok
-            ? "Both caches rebuilt."
-            : "Cache rebuild failed.";
+            ? "All valid daylight-map caches were rebuilt."
+            : "One or more daylight caches could not be rebuilt.";
+        break;
+
+      case RuntimeMapAction::RebuildEverything:
+        Serial.println(
+          "Runtime web: rebuilding every map cache"
+        );
+
+        ok = rebuildAllDayMapCaches();
+
+        if (ok) {
+          ok = rebuildMapCache(
+            false,
+            true
+          );
+        }
+
+        runtimeMapResultMessage =
+          ok
+            ? "All daylight and shared night caches were rebuilt."
+            : "One or more map caches could not be rebuilt.";
         break;
 
       case RuntimeMapAction::None:

@@ -64,19 +64,34 @@ A Pacific-centered map with 180° in the middle will not work unless it is horiz
 Day and night images
 ----------------------
 
-The SD card needs these exact filenames in its root:
+The SD card uses this layout:
 
-/earth_day.png
+/maps/<daylight-map-name>.png
 /earth_night.png
 
-The firmware creates and subsequently reads:
+For every daylight PNG, the firmware creates a same-name cache beside it:
 
-/earth_day.rgb565
+/maps/<daylight-map-name>.rgb565
+
+The shared night cache remains in the SD-card root:
+
 /earth_night.rgb565
 
-The filenames are fixed in the current configuration.
+Example:
 
-The two PNGs must be perfectly registered:
+/maps/earth_day.png
+/maps/earth_day.rgb565
+/maps/earth_day_political.png
+/maps/earth_day_political.rgb565
+/earth_night.png
+/earth_night.rgb565
+
+The Maps web page scans /maps for PNG files, validates them, shows previews,
+and lets one daylight filename be selected. The selected filename is stored in
+Preferences. If it later disappears, the firmware selects earth_day.png when
+available, otherwise the alphabetically first valid daylight PNG.
+
+Every daylight PNG must be perfectly registered with the shared night PNG:
 
 Same projection.
 Same dimensions.
@@ -91,7 +106,7 @@ The firmware does not switch abruptly between the maps. For each pixel, it calcu
 What each image should contain
 ----------------------
 
-earth_day.png
+Every /maps daylight PNG
 
 A completely daylight version of the entire planet:
 
@@ -156,14 +171,16 @@ Subtle gradients may show some banding, so slightly stronger color differences g
 Replacing the maps
 ----------------------
 
-After putting new PNGs on the SD card, the old RGB565 cache files may still be used. Rebuild both caches from the project’s Map Maintenance page, or delete:
+After putting a new daylight PNG in /maps, open the Maps page. Its card shows
+whether the PNG is valid and whether its same-name 153,600-byte RGB565 cache is
+present. Select and apply the map; the firmware creates its cache automatically
+when needed. A cache can also be rebuilt from that map’s card.
 
-earth_day.rgb565
-earth_night.rgb565
+The shared /earth_night.rgb565 cache can be rebuilt separately. “Rebuild every
+cache” rebuilds all valid daylight caches plus the shared night cache.
 
-and restart the clock.
-
-The firmware will then convert the replacement PNGs into new 153,600-byte RGB565 cache files.
+Thumbnail previews are streamed directly from the original PNG files, not from
+the RGB565 caches.
 
 ----------------------
 Practical checklist
@@ -181,7 +198,8 @@ A candidate map is suitable when all of these are true:
 ✓ Non-interlaced RGB PNG
 ✓ Day and night images precisely aligned
 ✓ No pre-rendered terminator
-✓ Correct filenames
-✓ RGB565 caches rebuilt after replacement
+✓ Daylight PNG stored in /maps
+✓ Shared night PNG stored as /earth_night.png
+✓ Same-name RGB565 cache rebuilt after replacement
 
 The most common mistake would be using a Mercator map or preserving a standard 2:1 map’s proportions by adding vertical padding. Both would cause the overlays and day/night boundary to be geographically misplaced.

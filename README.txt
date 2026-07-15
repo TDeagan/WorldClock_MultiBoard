@@ -1,55 +1,34 @@
-World Clock v4.6 patch
+World Clock v4.7 patch
 
 Starting point:
-  Working v4.5 firmware
+  Working v4.6 firmware
 
-Replace:
-  config.h
-  01_Hardware.ino
-  10_Utilities.ino
-  35_RenderEngine.ino
-  60_WiFiPortal.ino
-  62_RuntimeWebConfig.ino
-  90_Application.ino
+New map-library features:
+  - Scans /maps for daylight .png files
+  - Uses one shared /earth_night.png
+  - Creates /maps/<day-map-name>.rgb565 for each daylight map
+  - Stores the selected daylight filename in Preferences
+  - Falls back to earth_day.png, then the first valid map, if selected file is missing
+  - Streams thumbnail previews from the original PNG files
+  - Adds per-map Select and apply controls
+  - Shows PNG validation and RGB565 cache status for each map
+  - Adds per-map, all-daylight, shared-night, and all-cache rebuild controls
+  - Migrates legacy /earth_day.png into /maps/earth_day.png when needed
 
-Add as a new Arduino tab:
-  45_LocationGrid.ino
+Location-entry changes:
+  - Latitude selector: North (+) or South (-)
+  - Longitude selector: East (+) or West (-)
+  - Magnitude-only numeric fields optimized for mobile decimal keyboards
+  - Same controls in first-time setup and normal runtime Settings
 
-Reviewed but unchanged:
-  30_Map.ino
+SD-card layout:
+  /maps/earth_day.png
+  /maps/earth_day_political.png
+  /earth_night.png
 
-New v4.6 features:
-  - Persistent home latitude and longitude
-  - Optional magenta home-location target marker
-  - Optional 30-degree latitude/longitude grid
-  - Emphasized Equator and Prime Meridian
-  - Location and grid controls in first-time setup
-  - Location and grid controls in the normal web Settings page
-  - Active-settings summary entries
-  - Diagnostics entries for marker, latitude, longitude, and grid
-  - Immediate full redraw when the settings are applied
-  - Startup Serial report for the stored location/grid settings
+Generated automatically:
+  /maps/earth_day.rgb565
+  /maps/earth_day_political.rgb565
+  /earth_night.rgb565
 
-Defaults after upgrading:
-  - Home marker: off
-  - Coordinate grid: off
-  - Home latitude: 0
-  - Home longitude: 0
-
-Layer order:
-  1. Earth map and terminator
-  2. Coordinate grid
-  3. ISS orbit track
-  4. Sun
-  5. Moon
-  6. ISS marker
-  7. Home-location marker
-  8. Status bar
-
-The home marker is drawn last among map overlays so it remains visible.
-Coordinates use decimal degrees:
-  Latitude:  -90 through +90
-  Longitude: -180 through +180
-
-No brightness, PWM, backlight-level, or scheduled-dimming changes are
-included in this release.
+All map PNGs must be non-interlaced 320 x 240 equirectangular images.

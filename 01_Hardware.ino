@@ -77,6 +77,11 @@ uint16_t pngLine[MAP_W];
 bool timeValid = false;
 bool sdReady = false;
 bool pngWriteFailed = false;
+bool pngValidationOnly = false;
+
+String selectedDayMapFilename = DEFAULT_DAY_MAP_FILENAME;
+String activeDayPngPath = String(DAY_MAP_DIRECTORY) + "/" + DEFAULT_DAY_MAP_FILENAME;
+String activeDayRawPath = String(DAY_MAP_DIRECTORY) + "/earth_day.rgb565";
 
 unsigned long lastMapUpdate = 0;
 unsigned long lastClockUpdate = 0;
