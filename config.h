@@ -117,17 +117,24 @@ static constexpr int DISPLAY_ROTATION = ACTIVE_BOARD.displayRotation;
 // SD-CARD FILENAMES
 // ============================================================
 
-static constexpr const char *DAY_PNG_FILE =
+static constexpr const char *DAY_MAP_DIRECTORY =
+  "/maps";
+
+static constexpr const char *DEFAULT_DAY_MAP_FILENAME =
+  "earth_day.png";
+
+// Retained only for one-time migration from older SD-card layouts.
+static constexpr const char *LEGACY_DAY_PNG_FILE =
   "/earth_day.png";
 
 static constexpr const char *NIGHT_PNG_FILE =
   "/earth_night.png";
 
-static constexpr const char *DAY_RAW_FILE =
-  "/earth_day.rgb565";
-
 static constexpr const char *NIGHT_RAW_FILE =
   "/earth_night.rgb565";
+
+static constexpr size_t MAX_DAYLIGHT_MAPS = 20;
+static constexpr size_t MAX_DAY_MAP_FILENAME_LENGTH = 80;
 
 // ============================================================
 // CAPTIVE PORTAL
@@ -149,6 +156,11 @@ static constexpr const char *MAP_VALIDATE_PATH = "/maps/validate";
 static constexpr const char *MAP_REBUILD_DAY_PATH = "/maps/rebuild-day";
 static constexpr const char *MAP_REBUILD_NIGHT_PATH = "/maps/rebuild-night";
 static constexpr const char *MAP_REBUILD_BOTH_PATH = "/maps/rebuild-both";
+static constexpr const char *MAP_SELECT_PATH = "/maps/select";
+static constexpr const char *MAP_REBUILD_ONE_PATH = "/maps/rebuild-map";
+static constexpr const char *MAP_REBUILD_ALL_PATH = "/maps/rebuild-all";
+static constexpr const char *MAP_PREVIEW_PATH = "/maps/preview";
+static constexpr const char *MAP_NIGHT_PREVIEW_PATH = "/maps/night-preview";
 
 // ============================================================
 // PREFERENCES / NONVOLATILE STORAGE
@@ -208,6 +220,9 @@ static constexpr const char *PREF_KEY_SHOW_HOME_MARKER =
 static constexpr const char *PREF_KEY_SHOW_COORDINATE_GRID =
   "showGrid";
 
+static constexpr const char *PREF_KEY_SELECTED_DAY_MAP =
+  "dayMap";
+
 static constexpr int MIN_UTC_OFFSET_MINUTES =
   -12 * 60;
 
@@ -259,7 +274,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "4.6";
+  "4.7";
 
 // ============================================================
 // STARTUP SPLASH
@@ -339,6 +354,17 @@ struct LocationGridSettings {
   double homeLongitude = 0.0;
   bool showHomeMarker = false;
   bool showCoordinateGrid = false;
+};
+
+struct DaylightMapInfo {
+  String filename;
+  String pngPath;
+  String rawPath;
+  uint32_t pngBytes = 0;
+  uint32_t rawBytes = 0;
+  bool pngValid = false;
+  bool cacheValid = false;
+  bool selected = false;
 };
 
 enum class TimeZonePreset : uint8_t {
@@ -432,6 +458,11 @@ extern uint16_t pngLine[MAP_W];
 extern bool timeValid;
 extern bool sdReady;
 extern bool pngWriteFailed;
+extern bool pngValidationOnly;
+
+extern String selectedDayMapFilename;
+extern String activeDayPngPath;
+extern String activeDayRawPath;
 
 extern unsigned long lastMapUpdate;
 extern unsigned long lastClockUpdate;
@@ -546,6 +577,24 @@ int32_t pngSeekCallback(
 int pngDrawCallback(PNGDRAW *draw);
 
 bool rawMapIsValid(const char *path);
+bool pngMapIsValid(const char *path, bool fullDecode = false);
+
+bool isSafeDayMapFilename(const String &filename);
+String dayMapPngPath(const String &filename);
+String dayMapCachePath(const String &filename);
+size_t scanDaylightMaps(
+  DaylightMapInfo *maps,
+  size_t maximumCount,
+  bool fullValidation = false,
+  size_t *totalCountOut = nullptr
+);
+
+bool loadSelectedDayMapPreference();
+bool saveSelectedDayMapPreference(const String &filename);
+bool ensureSelectedDayMapAvailable(bool persistFallback = true);
+bool activateDayMap(const String &filename, bool rebuildCache = false);
+bool rebuildDayMapCache(const String &filename);
+bool rebuildAllDayMapCaches();
 
 bool convertPngToRaw(
   const char *pngPath,
