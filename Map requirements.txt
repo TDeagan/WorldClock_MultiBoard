@@ -1,0 +1,187 @@
+For this project, a usable map must match the firmware’s latitude/longitude geometry exactly. The most important requirement is the projection.
+
+----------------------
+Required projection
+----------------------
+
+Use a Plate Carrée, also called equirectangular or equidistant cylindrical, world map.
+
+The firmware assumes:
+
+Top edge:       +90° latitude — North Pole
+Middle:           0° latitude — Equator
+Bottom edge:    −90° latitude — South Pole
+
+Left edge:      −180° longitude
+Center:            0° longitude — Greenwich
+Right edge:     +180° longitude
+
+Longitude and latitude must both vary linearly with pixel position:
+
+longitude = -180.0 + (x + 0.5) * 360.0 / 320.0;
+latitude  =   90.0 - (y + 0.5) * 180.0 / 240.0;
+
+This is how the firmware places the terminator, Sun, Moon, ISS marker, and ISS orbit track.
+
+A Mercator, Robinson, Winkel Tripel, Mollweide, orthographic, or other projection will not align. The mismatch would be most noticeable at high latitudes.
+
+----------------------
+Required dimensions
+----------------------
+
+Both source images must be exactly:
+
+320 × 240 pixels
+
+The firmware explicitly defines the map source as 320×240 and maintains 320-pixel scanline buffers. It reserves the bottom 21 display rows for the status area, so the 240 source rows are scaled into the upper 219 display rows.
+
+This means the map is not using the usual 2:1 equirectangular aspect ratio. A normal 2:1 source, such as 2000×1000, should be:
+
+Cropped to the complete −180°…+180°, +90°…−90° globe.
+Resized to 320×240 without preserving the original aspect ratio.
+
+That vertical stretching may look geographically distorted, but it is what keeps the artwork aligned with the project’s coordinate calculations.
+
+Do not resize it to 320×160 and add top/bottom padding. Padding would shift every latitude.
+
+----------------------
+Orientation and geographic center
+----------------------
+
+The image must be:
+
+North-up.
+Not vertically flipped.
+Not horizontally mirrored.
+Centered on longitude 0°.
+Split at the International Date Line at the left and right edges.
+Full globe from pole to pole.
+Free of margins, borders, captions, or unused padding.
+
+A Pacific-centered map with 180° in the middle will not work unless it is horizontally shifted so Greenwich is in the center.
+
+----------------------
+Day and night images
+----------------------
+
+The SD card needs these exact filenames in its root:
+
+/earth_day.png
+/earth_night.png
+
+The firmware creates and subsequently reads:
+
+/earth_day.rgb565
+/earth_night.rgb565
+
+The filenames are fixed in the current configuration.
+
+The two PNGs must be perfectly registered:
+
+Same projection.
+Same dimensions.
+Same geographic center.
+Same coastline positions.
+Same crop.
+Same pole and equator positions.
+
+The firmware does not switch abruptly between the maps. For each pixel, it calculates sunlight and blends the corresponding day and night pixels. Misaligned coastlines would produce doubled or ghosted coastlines around the terminator.
+
+----------------------
+What each image should contain
+----------------------
+
+earth_day.png
+
+A completely daylight version of the entire planet:
+
+Lit land and oceans everywhere.
+No pre-rendered night region.
+No terminator.
+No Sun, Moon, ISS, clock, or text.
+earth_night.png
+
+A completely nighttime version of the entire planet:
+
+Dark land and oceans everywhere.
+Optional city lights.
+No daylight region.
+No pre-rendered terminator.
+Identical geography to the day map.
+
+The firmware generates the moving terminator by blending these two images itself.
+
+----------------------
+PNG characteristics
+----------------------
+
+The reliable format is:
+
+PNG
+320 × 240
+8 bits per channel
+RGB
+Non-interlaced
+No transparency
+
+The decoder specifically rejects interlaced PNGs and images whose dimensions are not exactly 320×240.
+
+RGBA may decode, but I would flatten transparency onto the intended background first. A conventional 24-bit RGB PNG is the safest choice.
+
+----------------------
+Visual-design considerations
+----------------------
+
+At this resolution, avoid very fine details. The actual map area on the LCD is only 320×219 pixels.
+
+Good maps should have:
+
+Clearly separated land and ocean colors.
+Moderate contrast rather than extremely bright whites.
+Coastlines that remain visible after RGB565 conversion.
+Minimal text or no text.
+No very thin political boundaries.
+Dark enough nighttime oceans for city lights and overlays to remain visible.
+Colors that do not obscure the cyan ISS track, white/yellow celestial markers, or cyan status text.
+
+RGB565 reduces the image to:
+
+5 bits red
+6 bits green
+5 bits blue
+
+Subtle gradients may show some banding, so slightly stronger color differences generally work better than very delicate photographic shading.
+
+----------------------
+Replacing the maps
+----------------------
+
+After putting new PNGs on the SD card, the old RGB565 cache files may still be used. Rebuild both caches from the project’s Map Maintenance page, or delete:
+
+earth_day.rgb565
+earth_night.rgb565
+
+and restart the clock.
+
+The firmware will then convert the replacement PNGs into new 153,600-byte RGB565 cache files.
+
+----------------------
+Practical checklist
+----------------------
+
+A candidate map is suitable when all of these are true:
+
+✓ Plate Carrée/equirectangular
+✓ Entire 360° × 180° globe
+✓ Greenwich at the horizontal center
+✓ Date Line at both edges
+✓ North Pole at top
+✓ South Pole at bottom
+✓ Exactly 320 × 240 pixels
+✓ Non-interlaced RGB PNG
+✓ Day and night images precisely aligned
+✓ No pre-rendered terminator
+✓ Correct filenames
+✓ RGB565 caches rebuilt after replacement
+
+The most common mistake would be using a Mercator map or preserving a standard 2:1 map’s proportions by adding vertical padding. Both would cause the overlays and day/night boundary to be geographically misplaced.

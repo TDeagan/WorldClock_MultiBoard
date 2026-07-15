@@ -1,46 +1,31 @@
-World Clock v4.3 rendering-engine patch
+World Clock v4.4.4 Apply-link fix
 
-Replace these existing files in the working v4.2 project:
-
+Replace:
   config.h
-  30_Map.ino
-  40_SunMoon.ino
-  65_ISS.ino
-  90_Application.ino
+  62_RuntimeWebConfig.ino
 
-Add this new Arduino tab:
+The Apply Settings control no longer submits an HTML form.
 
-  35_RenderEngine.ino
+It is now an ordinary link, matching the controls that are known to reach
+the ESP32 successfully. A small inline function reads the visible controls,
+constructs a GET query, and navigates directly to /apply-settings.
 
-What changed:
+The link also has a fallback URL. Therefore, clicking Apply must produce one
+of these results:
 
-  - Firmware version is now 4.3.
-  - One module owns the complete full-display rendering order.
-  - 90_Application.ino no longer calls individual map/overlay functions.
-  - The Sun and Moon have separate overlay renderers.
-  - ISS track and marker have rendering wrappers.
-  - Status-only clock updates call renderStatusBar().
-  - redrawWorldClock() remains as a compatibility entry point for the
-    runtime web configuration, map maintenance, and recovery code.
-  - A RenderState structure records which layers completed during the
-    most recent full redraw.
+1. Normal operation:
+     Runtime web: GET /apply-settings; ...
+     ...
+     source=apply-link
 
-Rendering order:
+2. If the browser refuses to execute the inline page function:
+     Runtime web: GET /apply-settings; 1 argument(s)
+     arg[0] source=fallback
 
-  1. Earth map and terminator
-  2. ISS orbit track
-  3. Sun
-  4. Moon
-  5. ISS marker
-  6. Clock/status bar and IP address
+   The page then displays:
+     The Apply link reached the clock, but the browser did not supply the
+     selected values.
 
-No changes were made to:
-
-  - the v4.2 unified scheduler;
-  - astronomy calculations;
-  - ISS retrieval or orbit calculations;
-  - Wi-Fi or captive portal behavior;
-  - SD cache behavior;
-  - diagnostics or map maintenance;
-  - board profiles;
-  - splash screen.
+If clicking Apply still produces no Serial output, verify Diagnostics shows
+Firmware 4.4.4. With this version Apply is the same HTML element type as the
+working Map Maintenance links.

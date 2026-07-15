@@ -86,6 +86,7 @@ unsigned long lastIssUpdate = 0;
 
 NetworkSettings networkSettings;
 OverlaySettings overlaySettings;
+DisplaySettings displaySettings;
 IssPosition issPosition;
 OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];
 bool issTrackValid = false;

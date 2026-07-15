@@ -27,6 +27,7 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <esp_system.h>
 
 // ============================================================
 // TARGET BOARD
@@ -174,6 +175,9 @@ static constexpr const char *PREF_KEY_SHOW_ISS_TRACK =
 static constexpr const char *PREF_KEY_ISS_TRACK_DOTTED =
   "trackDots";
 
+static constexpr const char *PREF_KEY_DISPLAY_FLIP_180 =
+  "flip180";
+
 static constexpr int MIN_UTC_OFFSET_MINUTES =
   -12 * 60;
 
@@ -225,7 +229,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "4.3";
+  "4.4.4";
 
 // ============================================================
 // STARTUP SPLASH
@@ -294,6 +298,10 @@ struct OverlaySettings {
   bool showISS = false;
   bool showIssTrack = false;
   bool issTrackDotted = false;
+};
+
+struct DisplaySettings {
+  bool flip180 = false;
 };
 
 struct IssPosition {
@@ -380,6 +388,7 @@ extern unsigned long lastIssUpdate;
 
 extern NetworkSettings networkSettings;
 extern OverlaySettings overlaySettings;
+extern DisplaySettings displaySettings;
 extern IssPosition issPosition;
 extern OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];
 extern bool issTrackValid;
@@ -405,6 +414,12 @@ void renderStatusBar();
 void redrawWorldClock();
 void setSystemError(SystemError error, const String &text);
 const char *systemErrorName(SystemError error);
+
+uint8_t effectiveDisplayRotation();
+void applyDisplayRotation();
+const char *displayOrientationName();
+String formatUptime(unsigned long uptimeMs);
+const char *resetReasonName(esp_reset_reason_t reason);
 
 // Internal math/map helpers
 static double norm180(double x);
@@ -539,6 +554,8 @@ bool saveNetworkSettings(
 
 bool loadOverlaySettings();
 bool saveOverlaySettings();
+bool loadDisplaySettings();
+bool saveDisplaySettings();
 
 void clearNetworkSettings();
 void serviceConfigurationButton();

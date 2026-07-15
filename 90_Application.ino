@@ -94,8 +94,11 @@ void initializeWorldClock() {
       : LOW
   );
 
+  // Load orientation before drawing the startup splash.
+  loadDisplaySettings();
+
   lcd.init();
-  lcd.setRotation(DISPLAY_ROTATION);
+  applyDisplayRotation();
   lcd.setColorDepth(16);
   lcd.setSwapBytes(true);
   lcd.fillScreen(TFT_BLACK);
@@ -111,6 +114,12 @@ void initializeWorldClock() {
     "LCD dimensions: %d x %d\n",
     lcd.width(),
     lcd.height()
+  );
+
+  Serial.printf(
+    "Display orientation: %s; rotation %u\n",
+    displayOrientationName(),
+    effectiveDisplayRotation()
   );
 
   if (!ensureNetworkConfigured()) {

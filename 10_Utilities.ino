@@ -94,3 +94,94 @@ const char *systemErrorName(
     default: return "Unknown";
   }
 }
+
+
+uint8_t effectiveDisplayRotation() {
+  const uint8_t nativeRotation =
+    static_cast<uint8_t>(DISPLAY_ROTATION);
+
+  if (!displaySettings.flip180) {
+    return nativeRotation;
+  }
+
+  // LovyanGFX rotations 0-3 are normal and 4-7 are mirrored.
+  // Keep the original group while rotating it by 180 degrees.
+  if (nativeRotation < 4) {
+    return static_cast<uint8_t>(
+      (nativeRotation + 2) % 4
+    );
+  }
+
+  return static_cast<uint8_t>(
+    4 + ((nativeRotation - 4 + 2) % 4)
+  );
+}
+
+
+void applyDisplayRotation() {
+  lcd.setRotation(
+    effectiveDisplayRotation()
+  );
+}
+
+
+const char *displayOrientationName() {
+  return displaySettings.flip180
+    ? "Flipped 180 degrees"
+    : "Normal";
+}
+
+
+String formatUptime(unsigned long uptimeMs) {
+  unsigned long seconds = uptimeMs / 1000UL;
+  const unsigned long days = seconds / 86400UL;
+  seconds %= 86400UL;
+  const unsigned long hours = seconds / 3600UL;
+  seconds %= 3600UL;
+  const unsigned long minutes = seconds / 60UL;
+  const unsigned long remainingSeconds = seconds % 60UL;
+
+  char buffer[40];
+
+  if (days > 0) {
+    snprintf(
+      buffer,
+      sizeof(buffer),
+      "%lu day%s %02lu:%02lu:%02lu",
+      days,
+      days == 1 ? "" : "s",
+      hours,
+      minutes,
+      remainingSeconds
+    );
+  } else {
+    snprintf(
+      buffer,
+      sizeof(buffer),
+      "%02lu:%02lu:%02lu",
+      hours,
+      minutes,
+      remainingSeconds
+    );
+  }
+
+  return String(buffer);
+}
+
+
+const char *resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "Power-on reset";
+    case ESP_RST_EXT: return "External reset";
+    case ESP_RST_SW: return "Software restart";
+    case ESP_RST_PANIC: return "Exception or panic";
+    case ESP_RST_INT_WDT: return "Interrupt watchdog";
+    case ESP_RST_TASK_WDT: return "Task watchdog";
+    case ESP_RST_WDT: return "Other watchdog";
+    case ESP_RST_DEEPSLEEP: return "Deep-sleep wake";
+    case ESP_RST_BROWNOUT: return "Brownout";
+    case ESP_RST_SDIO: return "SDIO reset";
+    case ESP_RST_UNKNOWN:
+    default: return "Unknown";
+  }
+}

@@ -947,3 +947,40 @@ bool saveOverlaySettings() {
   preferences.end();
   return ok;
 }
+
+
+bool loadDisplaySettings() {
+  Preferences preferences;
+
+  if (!preferences.begin(PREF_NAMESPACE, true)) {
+    displaySettings.flip180 = false;
+    return false;
+  }
+
+  displaySettings.flip180 =
+    preferences.getBool(
+      PREF_KEY_DISPLAY_FLIP_180,
+      false
+    );
+
+  preferences.end();
+  return true;
+}
+
+
+bool saveDisplaySettings() {
+  Preferences preferences;
+
+  if (!preferences.begin(PREF_NAMESPACE, false)) {
+    return false;
+  }
+
+  const bool ok =
+    preferences.putBool(
+      PREF_KEY_DISPLAY_FLIP_180,
+      displaySettings.flip180
+    ) > 0;
+
+  preferences.end();
+  return ok;
+}
