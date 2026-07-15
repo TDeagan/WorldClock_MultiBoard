@@ -36,7 +36,7 @@ void markCurrentSchedulerBuckets() {
   lastClockBucket =
     schedulerBucket(
       now,
-      CLOCK_UPDATE_SECONDS
+      clockUpdateIntervalSeconds()
     );
 
   lastAstronomyBucket =
@@ -120,6 +120,13 @@ void initializeWorldClock() {
     "Display orientation: %s; rotation %u\n",
     displayOrientationName(),
     effectiveDisplayRotation()
+  );
+
+  Serial.printf(
+    "Time zone: %s; clock: %s; seconds: %s\n",
+    timeZoneDisplayName().c_str(),
+    clockFormatName(),
+    timeSettings.showSeconds ? "shown" : "hidden"
   );
 
   if (!ensureNetworkConfigured()) {
@@ -266,7 +273,7 @@ void serviceWorldClock() {
   const time_t clockBucket =
     schedulerBucket(
       now,
-      CLOCK_UPDATE_SECONDS
+      clockUpdateIntervalSeconds()
     );
 
   const time_t astronomyBucket =

@@ -178,6 +178,15 @@ static constexpr const char *PREF_KEY_ISS_TRACK_DOTTED =
 static constexpr const char *PREF_KEY_DISPLAY_FLIP_180 =
   "flip180";
 
+static constexpr const char *PREF_KEY_TIME_ZONE_PRESET =
+  "tzPreset";
+
+static constexpr const char *PREF_KEY_CLOCK_24_HOUR =
+  "clock24";
+
+static constexpr const char *PREF_KEY_SHOW_SECONDS =
+  "showSecs";
+
 static constexpr int MIN_UTC_OFFSET_MINUTES =
   -12 * 60;
 
@@ -229,7 +238,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "4.4.4";
+  "4.5";
 
 // ============================================================
 // STARTUP SPLASH
@@ -302,6 +311,22 @@ struct OverlaySettings {
 
 struct DisplaySettings {
   bool flip180 = false;
+};
+
+enum class TimeZonePreset : uint8_t {
+  FixedOffset = 0,
+  UTC = 1,
+  USEastern = 2,
+  USCentral = 3,
+  USMountain = 4,
+  USPacific = 5
+};
+
+struct TimeSettings {
+  // FixedOffset preserves the behavior of older firmware after upgrade.
+  TimeZonePreset timeZone = TimeZonePreset::FixedOffset;
+  bool use24Hour = true;
+  bool showSeconds = false;
 };
 
 struct IssPosition {
@@ -389,6 +414,7 @@ extern unsigned long lastIssUpdate;
 extern NetworkSettings networkSettings;
 extern OverlaySettings overlaySettings;
 extern DisplaySettings displaySettings;
+extern TimeSettings timeSettings;
 extern IssPosition issPosition;
 extern OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];
 extern bool issTrackValid;
@@ -419,7 +445,19 @@ uint8_t effectiveDisplayRotation();
 void applyDisplayRotation();
 const char *displayOrientationName();
 String formatUptime(unsigned long uptimeMs);
+String formatAge(time_t stamp);
+String formatElapsedAge(unsigned long stampMs);
 const char *resetReasonName(esp_reset_reason_t reason);
+
+// Time-zone and clock-display preferences
+bool timeZonePresetIsValid(uint8_t value);
+const char *timeZonePresetName(TimeZonePreset preset);
+String formatUtcOffsetMinutes(int offsetMinutes);
+String timeZoneDisplayName();
+const char *clockFormatName();
+time_t clockUpdateIntervalSeconds();
+String configuredPosixTimeZone();
+void applyConfiguredTimeZone();
 
 // Internal math/map helpers
 static double norm180(double x);
@@ -556,6 +594,8 @@ bool loadOverlaySettings();
 bool saveOverlaySettings();
 bool loadDisplaySettings();
 bool saveDisplaySettings();
+bool loadTimeSettings();
+bool saveTimeSettings();
 
 void clearNetworkSettings();
 void serviceConfigurationButton();

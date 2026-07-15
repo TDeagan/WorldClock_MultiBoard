@@ -10,7 +10,8 @@ bool runtimeServerStarted = false;
 // restart work.
 bool runtimeApplyPending = false;
 bool runtimeForgetPending = false;
-bool runtimePendingOffsetChanged = false;
+bool runtimePendingTimeZoneChanged = false;
+bool runtimePendingClockDisplayChanged = false;
 bool runtimePendingOrientationChanged = false;
 unsigned long runtimeActionAt = 0;
 
@@ -179,14 +180,7 @@ bool saveRuntimeUtcOffset(
 }
 
 
-String formatAge(time_t stamp) {
-  if (stamp <= 0) return "Never";
-  long age = static_cast<long>(time(nullptr) - stamp);
-  if (age < 0) age = 0;
-  if (age < 60) return String(age) + " sec";
-  if (age < 3600) return String(age / 60) + " min";
-  return String(age / 3600) + " hr " + String((age % 3600) / 60) + " min";
-}
+
 
 String runtimeConfigurationPage(
   const String &message = "",
@@ -209,6 +203,49 @@ String runtimeConfigurationPage(
     page += F("</div>");
   }
 
+  page += F("<h2>Active settings</h2><table>");
+
+  auto summaryRow =
+    [&](const String &name, const String &value) {
+      page += F("<tr><td>");
+      page += htmlEscapeRuntime(name);
+      page += F("</td><td>");
+      page += htmlEscapeRuntime(value);
+      page += F("</td></tr>");
+    };
+
+  summaryRow(
+    "Time zone",
+    timeZoneDisplayName()
+  );
+
+  summaryRow(
+    "Clock",
+    String(clockFormatName()) +
+      (timeSettings.showSeconds
+        ? ", seconds shown"
+        : ", seconds hidden")
+  );
+
+  summaryRow(
+    "Orientation",
+    displayOrientationName()
+  );
+
+  summaryRow(
+    "Overlays",
+    String("Sun ") +
+      (overlaySettings.showSun ? "on" : "off") +
+      ", Moon " +
+      (overlaySettings.showMoon ? "on" : "off") +
+      ", ISS " +
+      (overlaySettings.showISS ? "on" : "off") +
+      ", Track " +
+      (overlaySettings.showIssTrack ? "on" : "off")
+  );
+
+  page += F("</table><h2>Edit settings</h2>");
+
   page +=
     F("<p class=\"note\">Connected to <strong>");
 
@@ -227,7 +264,34 @@ String runtimeConfigurationPage(
   page += F(
     "</strong></p>"
     "<div id=\"settingsControls\">"
-    "<label>UTC offset in hours</label>"
+    "<label>Time zone</label>"
+    "<select id=\"timeZone\">"
+  );
+
+  for (
+    uint8_t value = 0;
+    value <= static_cast<uint8_t>(TimeZonePreset::USPacific);
+    ++value
+  ) {
+    const TimeZonePreset preset =
+      static_cast<TimeZonePreset>(value);
+
+    page += F("<option value=\"");
+    page += String(value);
+    page += F("\"");
+
+    if (timeSettings.timeZone == preset) {
+      page += F(" selected");
+    }
+
+    page += F(">");
+    page += timeZonePresetName(preset);
+    page += F("</option>");
+  }
+
+  page += F(
+    "</select>"
+    "<label>Fixed UTC offset in hours</label>"
     "<div class=\"row\">"
     "<select class=\"sign\" id=\"offsetSign\">"
     "<option value=\"+\""
@@ -269,6 +333,37 @@ String runtimeConfigurationPage(
   page += F(
     "\">"
     "</div>"
+    "<p class=\"note\">The fixed offset is used only when Fixed UTC offset "
+    "is selected. US presets change automatically for daylight-saving time.</p>"
+    "<label>Clock format</label>"
+    "<select id=\"use24Hour\">"
+    "<option value=\"1\""
+  );
+
+  if (timeSettings.use24Hour) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">24-hour</option><option value=\"0\""
+  );
+
+  if (!timeSettings.use24Hour) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">12-hour</option></select>"
+    "<label class=\"check\">"
+    "<input type=\"checkbox\" id=\"showSeconds\""
+  );
+
+  if (timeSettings.showSeconds) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show seconds</label>"
     "<label>Display orientation</label>"
     "<select id=\"flip180\">"
     "<option value=\"0\""
@@ -292,8 +387,7 @@ String runtimeConfigurationPage(
     "</select>"
     "<label>Map overlays</label>"
     "<label class=\"check\">"
-    "<input type=\"checkbox\" "
-    "id=\"showSun\""
+    "<input type=\"checkbox\" id=\"showSun\""
   );
 
   if (overlaySettings.showSun) {
@@ -303,8 +397,7 @@ String runtimeConfigurationPage(
   page += F(
     ">Show Sun</label>"
     "<label class=\"check\">"
-    "<input type=\"checkbox\" "
-    "id=\"showMoon\""
+    "<input type=\"checkbox\" id=\"showMoon\""
   );
 
   if (overlaySettings.showMoon) {
@@ -314,8 +407,7 @@ String runtimeConfigurationPage(
   page += F(
     ">Show Moon</label>"
     "<label class=\"check\">"
-    "<input type=\"checkbox\" "
-    "id=\"showISS\""
+    "<input type=\"checkbox\" id=\"showISS\""
   );
 
   if (overlaySettings.showISS) {
@@ -325,8 +417,7 @@ String runtimeConfigurationPage(
   page += F(
     ">Show ISS marker</label>"
     "<label class=\"check\">"
-    "<input type=\"checkbox\" "
-    "id=\"showIssTrack\""
+    "<input type=\"checkbox\" id=\"showIssTrack\""
   );
 
   if (overlaySettings.showIssTrack) {
@@ -336,8 +427,7 @@ String runtimeConfigurationPage(
   page += F(
     ">Show one-orbit ISS track</label>"
     "<label class=\"check\">"
-    "<input type=\"checkbox\" "
-    "id=\"issTrackDotted\""
+    "<input type=\"checkbox\" id=\"issTrackDotted\""
   );
 
   if (overlaySettings.issTrackDotted) {
@@ -347,20 +437,14 @@ String runtimeConfigurationPage(
   page += F(
     ">Use dotted track</label>"
     "</div>"
-
-    // This is deliberately an ordinary link, not a form submit
-    // control. The other link-based controls are known to work.
     "<a class=\"button\" "
     "href=\"/apply-settings?source=fallback\" "
     "onclick=\"return wcApplySettings();\">"
     "Apply settings now"
     "</a>"
-
-    "<a class=\"button danger\" "
-    "href=\"/forget\">"
+    "<a class=\"button danger\" href=\"/forget\">"
     "Forget Wi-Fi and start setup"
     "</a>"
-
     "<script>"
     "function wcApplySettings(){"
       "try{"
@@ -368,36 +452,21 @@ String runtimeConfigurationPage(
         "function add(n,v){"
           "q.push(encodeURIComponent(n)+'='+encodeURIComponent(v));"
         "}"
-        "add('offsetSign',"
-          "document.getElementById('offsetSign').value);"
-        "add('offsetMagnitude',"
-          "document.getElementById('offsetMagnitude').value);"
-        "add('flip180',"
-          "document.getElementById('flip180').value);"
-
-        "var checks=["
-          "'showSun',"
-          "'showMoon',"
-          "'showISS',"
-          "'showIssTrack',"
-          "'issTrackDotted'"
-        "];"
-
+        "add('timeZone',document.getElementById('timeZone').value);"
+        "add('offsetSign',document.getElementById('offsetSign').value);"
+        "add('offsetMagnitude',document.getElementById('offsetMagnitude').value);"
+        "add('use24Hour',document.getElementById('use24Hour').value);"
+        "add('flip180',document.getElementById('flip180').value);"
+        "var checks=['showSeconds','showSun','showMoon','showISS',"
+          "'showIssTrack','issTrackDotted'];"
         "for(var i=0;i<checks.length;i++){"
           "var e=document.getElementById(checks[i]);"
-          "if(e&&e.checked){"
-            "add(checks[i],'1');"
-          "}"
+          "if(e&&e.checked){add(checks[i],'1');}"
         "}"
-
         "add('source','apply-link');"
         "window.location.href='/apply-settings?'+q.join('&');"
         "return false;"
-      "}catch(error){"
-        // Returning true follows the fallback href, which will still
-        // reach the ESP32 and create Serial output.
-        "return true;"
-      "}"
+      "}catch(error){return true;}"
     "}"
     "</script>"
   );
@@ -435,15 +504,17 @@ void handleRuntimeSave() {
   }
 
   if (
+    !runtimeServer.hasArg("timeZone") ||
     !runtimeServer.hasArg("offsetMagnitude") ||
     !runtimeServer.hasArg("offsetSign") ||
+    !runtimeServer.hasArg("use24Hour") ||
     !runtimeServer.hasArg("flip180")
   ) {
     sendRuntimeHtml(
       400,
       runtimeConfigurationPage(
         "The Apply link reached the clock, but the browser did not "
-        "supply the selected values. Please report this message.",
+        "supply all selected values.",
         true
       )
     );
@@ -461,7 +532,7 @@ void handleRuntimeSave() {
     sendRuntimeHtml(
       400,
       runtimeConfigurationPage(
-        "Invalid UTC offset. Enter a value from 0 through 14 hours.",
+        "Invalid fixed UTC offset. Enter a value from 0 through 14 hours.",
         true
       )
     );
@@ -473,35 +544,69 @@ void handleRuntimeSave() {
       ? -magnitudeMinutes
       : magnitudeMinutes;
 
+  const int timeZoneValue =
+    runtimeServer.arg("timeZone").toInt();
+
   if (
-    offsetMinutes < MIN_UTC_OFFSET_MINUTES ||
-    offsetMinutes > MAX_UTC_OFFSET_MINUTES
+    !timeZonePresetIsValid(
+      static_cast<uint8_t>(timeZoneValue)
+    )
   ) {
     sendRuntimeHtml(
       400,
       runtimeConfigurationPage(
-        "UTC offset is outside the allowed range.",
+        "Select a valid time zone.",
         true
       )
     );
     return;
   }
 
+  const TimeZonePreset requestedTimeZone =
+    static_cast<TimeZonePreset>(
+      timeZoneValue
+    );
+
+  const bool requested24Hour =
+    runtimeServer.arg("use24Hour") != "0";
+
+  const bool requestedShowSeconds =
+    runtimeServer.hasArg("showSeconds");
+
   const bool requestedFlip180 =
     runtimeServer.arg("flip180") == "1";
+
+  runtimePendingTimeZoneChanged =
+    requestedTimeZone !=
+      timeSettings.timeZone ||
+    (
+      requestedTimeZone ==
+        TimeZonePreset::FixedOffset &&
+      offsetMinutes !=
+        networkSettings.utcOffsetMinutes
+    );
+
+  runtimePendingClockDisplayChanged =
+    requested24Hour !=
+      timeSettings.use24Hour ||
+    requestedShowSeconds !=
+      timeSettings.showSeconds;
 
   runtimePendingOrientationChanged =
     requestedFlip180 !=
       displaySettings.flip180;
 
-  runtimePendingOffsetChanged =
-    offsetMinutes !=
-      networkSettings.utcOffsetMinutes;
-
-  // Apply valid submitted values to live state before attempting
-  // persistence. A preference error must not block this session.
   networkSettings.utcOffsetMinutes =
     offsetMinutes;
+
+  timeSettings.timeZone =
+    requestedTimeZone;
+
+  timeSettings.use24Hour =
+    requested24Hour;
+
+  timeSettings.showSeconds =
+    requestedShowSeconds;
 
   displaySettings.flip180 =
     requestedFlip180;
@@ -526,6 +631,9 @@ void handleRuntimeSave() {
       offsetMinutes
     );
 
+  const bool timeSaved =
+    saveTimeSettings();
+
   const bool overlaysSaved =
     saveOverlaySettings();
 
@@ -534,23 +642,24 @@ void handleRuntimeSave() {
 
   Serial.printf(
     "Runtime web: persistence results; "
-    "offset=%d overlays=%d display=%d\n",
+    "offset=%d time=%d overlays=%d display=%d\n",
     offsetSaved,
+    timeSaved,
     overlaysSaved,
     displaySaved
   );
 
-  // Always apply valid submitted settings now.
   runtimeApplyPending = true;
   runtimeActionAt = millis() + 250UL;
 
-  String message =
-    "Settings accepted. The display is updating now.";
-
   const bool persistenceFailed =
     !offsetSaved ||
+    !timeSaved ||
     !overlaysSaved ||
     !displaySaved;
+
+  String message =
+    "Settings accepted. The display is updating now.";
 
   if (persistenceFailed) {
     message +=
@@ -719,14 +828,52 @@ void handleRebuildBoth() {
 } // namespace
 
 String buildDiagnosticsPage() {
-  systemStatus.wifiConnected = WiFi.status() == WL_CONNECTED;
-  systemStatus.issPositionValid = issPosition.valid;
-  systemStatus.orbitTrackValid = issTrackValid;
-  String page = pageHeader("Diagnostics");
+  systemStatus.wifiConnected =
+    WiFi.status() == WL_CONNECTED;
+
+  systemStatus.issPositionValid =
+    issPosition.valid;
+
+  systemStatus.orbitTrackValid =
+    issTrackValid;
+
+  const time_t now =
+    time(nullptr);
+
+  tm localTm {};
+  localtime_r(&now, &localTm);
+
+  char zoneAbbreviation[16] = "";
+  char numericOffset[16] = "";
+
+  strftime(
+    zoneAbbreviation,
+    sizeof(zoneAbbreviation),
+    "%Z",
+    &localTm
+  );
+
+  strftime(
+    numericOffset,
+    sizeof(numericOffset),
+    "%z",
+    &localTm
+  );
+
+  String page =
+    pageHeader("Diagnostics");
+
   page += F("<table>");
-  auto row = [&](const String &name, const String &value) {
-    page += F("<tr><td>"); page += name; page += F("</td><td>"); page += htmlEscapeRuntime(value); page += F("</td></tr>");
-  };
+
+  auto row =
+    [&](const String &name, const String &value) {
+      page += F("<tr><td>");
+      page += htmlEscapeRuntime(name);
+      page += F("</td><td>");
+      page += htmlEscapeRuntime(value);
+      page += F("</td></tr>");
+    };
+
   row("Board profile", ACTIVE_BOARD.name);
   row("Display dimensions", String(lcd.width()) + " x " + String(lcd.height()));
   row("Native LCD rotation", String(DISPLAY_ROTATION));
@@ -736,6 +883,10 @@ String buildDiagnosticsPage() {
   row("Build timestamp", String(__DATE__) + " " + String(__TIME__));
   row("Uptime", formatUptime(millis()));
   row("Last reset reason", resetReasonName(esp_reset_reason()));
+  row("Time zone setting", timeZoneDisplayName());
+  row("Current zone", String(zoneAbbreviation) + " " + numericOffset);
+  row("Clock format", clockFormatName());
+  row("Seconds", timeSettings.showSeconds ? "Shown" : "Hidden");
   row("Free heap", String(ESP.getFreeHeap()) + " bytes");
   row("Minimum free heap", String(ESP.getMinFreeHeap()) + " bytes");
   row("Largest free heap block", String(ESP.getMaxAllocHeap()) + " bytes");
@@ -745,22 +896,25 @@ String buildDiagnosticsPage() {
   row("Wi-Fi", systemStatus.wifiConnected ? "Connected" : "Disconnected");
   row("SSID", WiFi.SSID());
   row("IP", WiFi.localIP().toString());
-  row("RSSI", String(WiFi.RSSI()) + " dBm");
+  row("Wi-Fi signal", String(WiFi.RSSI()) + " dBm");
   row("NTP", systemStatus.ntpSynced ? "Synchronized" : "Unavailable");
-  row("Last NTP sync age", formatAge(systemStatus.lastNtpSync));
+  row("Last NTP sync", formatAge(systemStatus.lastNtpSync));
+  row("Last full map render", formatElapsedAge(lastMapUpdate));
   row("microSD", systemStatus.sdMounted ? "Mounted" : "Unavailable");
   row("Day PNG", systemStatus.dayPngFound ? "Found" : "Missing");
   row("Night PNG", systemStatus.nightPngFound ? "Found" : "Missing");
   row("Day cache", systemStatus.dayCacheValid ? "Valid" : "Invalid");
   row("Night cache", systemStatus.nightCacheValid ? "Valid" : "Invalid");
   row("ISS position", issPosition.valid ? "Valid" : "Unavailable");
-  row("ISS age", formatAge(issPosition.updatedAt));
+  row("ISS data age", formatAge(issPosition.updatedAt));
   row("Orbit track", issTrackValid ? "Valid" : "Unavailable");
   row("Sun/Moon/ISS/Track", String(overlaySettings.showSun) + "/" + String(overlaySettings.showMoon) + "/" + String(overlaySettings.showISS) + "/" + String(overlaySettings.showIssTrack));
   row("Last error", systemErrorName(systemStatus.lastError));
   row("Error detail", systemStatus.lastErrorText.length() ? systemStatus.lastErrorText : "None");
+
   page += F("</table><p><a href=\"/diagnostics\">Refresh</a></p>");
-  page += pageFooter(); return page;
+  page += pageFooter();
+  return page;
 }
 
 String buildMapMaintenancePage(const String &message, bool error) {
@@ -881,24 +1035,30 @@ void serviceRuntimeConfigServer() {
   ) {
     runtimeApplyPending = false;
 
-    const bool offsetChanged =
-      runtimePendingOffsetChanged;
+    const bool timeZoneChanged =
+      runtimePendingTimeZoneChanged;
+
+    const bool clockDisplayChanged =
+      runtimePendingClockDisplayChanged;
 
     const bool orientationChanged =
       runtimePendingOrientationChanged;
 
-    runtimePendingOffsetChanged = false;
+    runtimePendingTimeZoneChanged = false;
+    runtimePendingClockDisplayChanged = false;
     runtimePendingOrientationChanged = false;
 
     Serial.printf(
       "Runtime web: applying settings; "
-      "offsetChanged=%d orientationChanged=%d\n",
-      offsetChanged,
+      "timeZoneChanged=%d clockDisplayChanged=%d "
+      "orientationChanged=%d\n",
+      timeZoneChanged,
+      clockDisplayChanged,
       orientationChanged
     );
 
-    if (offsetChanged) {
-      retryNtpSync();
+    if (timeZoneChanged) {
+      applyConfiguredTimeZone();
     }
 
     if (orientationChanged) {

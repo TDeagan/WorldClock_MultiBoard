@@ -185,3 +185,171 @@ const char *resetReasonName(esp_reset_reason_t reason) {
     default: return "Unknown";
   }
 }
+
+
+String formatAge(time_t stamp) {
+  if (stamp <= 0) {
+    return "Never";
+  }
+
+  long age =
+    static_cast<long>(
+      time(nullptr) - stamp
+    );
+
+  if (age < 0) {
+    age = 0;
+  }
+
+  if (age < 60) {
+    return String(age) + " sec ago";
+  }
+
+  if (age < 3600) {
+    return String(age / 60) + " min ago";
+  }
+
+  if (age < 86400) {
+    return String(age / 3600) +
+      " hr " +
+      String((age % 3600) / 60) +
+      " min ago";
+  }
+
+  return String(age / 86400) +
+    " day" +
+    ((age / 86400) == 1 ? "" : "s") +
+    " ago";
+}
+
+
+String formatElapsedAge(
+  unsigned long stampMs
+) {
+  if (stampMs == 0) {
+    return "Never";
+  }
+
+  unsigned long ageSeconds =
+    (millis() - stampMs) / 1000UL;
+
+  if (ageSeconds < 60UL) {
+    return String(ageSeconds) +
+      " sec ago";
+  }
+
+  if (ageSeconds < 3600UL) {
+    return String(ageSeconds / 60UL) +
+      " min ago";
+  }
+
+  if (ageSeconds < 86400UL) {
+    return String(ageSeconds / 3600UL) +
+      " hr " +
+      String((ageSeconds % 3600UL) / 60UL) +
+      " min ago";
+  }
+
+  const unsigned long days =
+    ageSeconds / 86400UL;
+
+  return String(days) +
+    " day" +
+    (days == 1 ? "" : "s") +
+    " ago";
+}
+
+
+
+bool timeZonePresetIsValid(uint8_t value) {
+  return value <=
+    static_cast<uint8_t>(
+      TimeZonePreset::USPacific
+    );
+}
+
+
+const char *timeZonePresetName(
+  TimeZonePreset preset
+) {
+  switch (preset) {
+    case TimeZonePreset::FixedOffset:
+      return "Fixed UTC offset";
+
+    case TimeZonePreset::UTC:
+      return "UTC";
+
+    case TimeZonePreset::USEastern:
+      return "US Eastern";
+
+    case TimeZonePreset::USCentral:
+      return "US Central";
+
+    case TimeZonePreset::USMountain:
+      return "US Mountain";
+
+    case TimeZonePreset::USPacific:
+      return "US Pacific";
+
+    default:
+      return "Fixed UTC offset";
+  }
+}
+
+
+String formatUtcOffsetMinutes(
+  int offsetMinutes
+) {
+  const char sign =
+    offsetMinutes < 0 ? '-' : '+';
+
+  const int absoluteMinutes =
+    abs(offsetMinutes);
+
+  char buffer[16];
+
+  snprintf(
+    buffer,
+    sizeof(buffer),
+    "UTC%c%02d:%02d",
+    sign,
+    absoluteMinutes / 60,
+    absoluteMinutes % 60
+  );
+
+  return String(buffer);
+}
+
+
+String timeZoneDisplayName() {
+  if (
+    timeSettings.timeZone ==
+      TimeZonePreset::FixedOffset
+  ) {
+    return String("Fixed ") +
+      formatUtcOffsetMinutes(
+        networkSettings.utcOffsetMinutes
+      );
+  }
+
+  return String(
+    timeZonePresetName(
+      timeSettings.timeZone
+    )
+  );
+}
+
+
+const char *clockFormatName() {
+  return timeSettings.use24Hour
+    ? "24-hour"
+    : "12-hour";
+}
+
+
+time_t clockUpdateIntervalSeconds() {
+  return timeSettings.showSeconds
+    ? 1
+    : CLOCK_UPDATE_SECONDS;
+}
+

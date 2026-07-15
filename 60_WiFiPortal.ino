@@ -122,6 +122,28 @@ bool parseUtcOffset(
   return true;
 }
 
+bool parseTimeZonePresetPortal(
+  const String &text,
+  TimeZonePreset &presetOut
+) {
+  const int value =
+    text.toInt();
+
+  if (
+    !timeZonePresetIsValid(
+      static_cast<uint8_t>(value)
+    )
+  ) {
+    return false;
+  }
+
+  presetOut =
+    static_cast<TimeZonePreset>(value);
+
+  return true;
+}
+
+
 String buildNetworkOptions() {
   showStatus(
     "Scanning Wi-Fi",
@@ -205,13 +227,13 @@ String configurationPage(
   bool isError = false
 ) {
   String page;
-  page.reserve(7800);
+  page.reserve(9000);
 
   page += F(
     "<!doctype html><html><head>"
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
     "<meta charset=\"utf-8\">"
-    "<title>E32R28T World Clock Setup</title>"
+    "<title>World Clock Setup</title>"
     "<style>"
     "body{font-family:Arial,sans-serif;background:#101820;color:#f2f4f7;"
     "margin:0;padding:20px}"
@@ -223,18 +245,23 @@ String configurationPage(
     "border:1px solid #667;background:#fff;color:#111;font-size:1rem}"
     "button{width:100%;margin-top:22px;padding:12px;border:0;border-radius:8px;"
     "background:#ffd43b;color:#111;font-size:1.05rem;font-weight:bold}"
-    ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}"".row{display:flex;gap:10px}.sign{width:86px;flex:0 0 86px}"".grow{flex:1}.check{display:flex;align-items:center;gap:8px;margin-top:10px;""font-weight:normal}.check input{width:auto;margin:0}"
+    ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}"
+    ".row{display:flex;gap:10px}.sign{width:86px;flex:0 0 86px}"
+    ".grow{flex:1}.check{display:flex;align-items:center;gap:8px;margin-top:10px;"
+    "font-weight:normal}.check input{width:auto;margin:0}"
     ".msg{padding:10px;border-radius:7px;margin-bottom:12px;background:#24435a}"
     ".err{background:#6b2632}"
     "</style></head><body><div class=\"card\">"
-    "<h1>E32R28T World Clock Setup</h1>"
+    "<h1>World Clock Setup</h1>"
   );
 
   if (message.length()) {
     page += F("<div class=\"msg");
+
     if (isError) {
       page += F(" err");
     }
+
     page += F("\">");
     page += htmlEscape(message);
     page += F("</div>");
@@ -259,7 +286,34 @@ String configurationPage(
     "<label class=\"check\"><input id=\"showPassword\" type=\"checkbox\" "
     "onclick=\"document.getElementById('password').type=this.checked?'text':'password'\">"
     "Show password</label>"
-    "<label>UTC offset in hours</label>"
+    "<label>Time zone</label>"
+    "<select name=\"timeZone\">"
+  );
+
+  for (
+    uint8_t value = 0;
+    value <= static_cast<uint8_t>(TimeZonePreset::USPacific);
+    ++value
+  ) {
+    const TimeZonePreset preset =
+      static_cast<TimeZonePreset>(value);
+
+    page += F("<option value=\"");
+    page += String(value);
+    page += F("\"");
+
+    if (timeSettings.timeZone == preset) {
+      page += F(" selected");
+    }
+
+    page += F(">");
+    page += timeZonePresetName(preset);
+    page += F("</option>");
+  }
+
+  page += F(
+    "</select>"
+    "<label>Fixed UTC offset in hours</label>"
     "<div class=\"row\">"
     "<select class=\"sign\" id=\"offsetSign\" name=\"offsetSign\">"
     "<option value=\"+\""
@@ -290,10 +344,36 @@ String configurationPage(
 
   page += F(
     "\"></div>"
-    "<p class=\"note\">Examples: choose - and enter 5 for UTC-5; "
-    "choose + and enter 5.5 for UTC+5:30. "
-    "This is a fixed UTC offset and does not automatically change for "
-    "daylight-saving time.</p>"
+    "<p class=\"note\">The fixed offset is used only when Fixed UTC offset "
+    "is selected. US presets apply daylight-saving time automatically.</p>"
+    "<label>Clock format</label>"
+    "<select name=\"use24Hour\">"
+    "<option value=\"1\""
+  );
+
+  if (timeSettings.use24Hour) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">24-hour</option><option value=\"0\""
+  );
+
+  if (!timeSettings.use24Hour) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">12-hour</option></select>"
+    "<label class=\"check\"><input type=\"checkbox\" name=\"showSeconds\" value=\"1\""
+  );
+
+  if (timeSettings.showSeconds) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show seconds</label>"
     "<label>Map overlays</label>"
     "<label class=\"check\"><input type=\"checkbox\" name=\"showSun\" value=\"1\""
   );
@@ -372,8 +452,6 @@ void handleConfigurationSave() {
   const String password =
     portalServer.arg("password");
 
-  int offsetMinutes = 0;
-
   if (ssid.length() == 0) {
     portalServer.send(
       400,
@@ -411,23 +489,24 @@ void handleConfigurationSave() {
     return;
   }
 
-  const String sign =
-    portalServer.arg("offsetSign");
+  const int offsetMinutes =
+    portalServer.arg("offsetSign") == "-"
+      ? -magnitudeMinutes
+      : magnitudeMinutes;
 
-  offsetMinutes =
-    sign == "-"
-    ? -magnitudeMinutes
-    : magnitudeMinutes;
+  TimeZonePreset requestedTimeZone;
 
   if (
-    offsetMinutes < MIN_UTC_OFFSET_MINUTES ||
-    offsetMinutes > MAX_UTC_OFFSET_MINUTES
+    !parseTimeZonePresetPortal(
+      portalServer.arg("timeZone"),
+      requestedTimeZone
+    )
   ) {
     portalServer.send(
       400,
       "text/html",
       configurationPage(
-        "The selected UTC offset is outside the allowed range.",
+        "Select a valid time zone.",
         true
       )
     );
@@ -445,12 +524,21 @@ void handleConfigurationSave() {
       500,
       "text/html",
       configurationPage(
-        "The settings could not be saved.",
+        "The network settings could not be saved.",
         true
       )
     );
     return;
   }
+
+  timeSettings.timeZone =
+    requestedTimeZone;
+
+  timeSettings.use24Hour =
+    portalServer.arg("use24Hour") != "0";
+
+  timeSettings.showSeconds =
+    portalServer.hasArg("showSeconds");
 
   overlaySettings.showSun =
     portalServer.hasArg("showSun");
@@ -467,12 +555,15 @@ void handleConfigurationSave() {
   overlaySettings.issTrackDotted =
     portalServer.hasArg("issTrackDotted");
 
-  if (!saveOverlaySettings()) {
+  if (
+    !saveTimeSettings() ||
+    !saveOverlaySettings()
+  ) {
     portalServer.send(
       500,
       "text/html",
       configurationPage(
-        "The overlay settings could not be saved.",
+        "The clock preferences could not be saved.",
         true
       )
     );
@@ -842,6 +933,7 @@ void runConfigurationPortal() {
 
 bool ensureNetworkConfigured() {
   loadOverlaySettings();
+  loadTimeSettings();
   loadNetworkSettings();
 
   if (!networkSettings.configured) {
@@ -984,3 +1076,88 @@ bool saveDisplaySettings() {
   preferences.end();
   return ok;
 }
+
+
+bool loadTimeSettings() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      PREF_NAMESPACE,
+      true
+    )
+  ) {
+    timeSettings = TimeSettings();
+    return false;
+  }
+
+  const uint8_t presetValue =
+    preferences.getUChar(
+      PREF_KEY_TIME_ZONE_PRESET,
+      static_cast<uint8_t>(
+        TimeZonePreset::FixedOffset
+      )
+    );
+
+  timeSettings.timeZone =
+    timeZonePresetIsValid(presetValue)
+      ? static_cast<TimeZonePreset>(presetValue)
+      : TimeZonePreset::FixedOffset;
+
+  timeSettings.use24Hour =
+    preferences.getBool(
+      PREF_KEY_CLOCK_24_HOUR,
+      true
+    );
+
+  timeSettings.showSeconds =
+    preferences.getBool(
+      PREF_KEY_SHOW_SECONDS,
+      false
+    );
+
+  preferences.end();
+  return true;
+}
+
+
+bool saveTimeSettings() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      PREF_NAMESPACE,
+      false
+    )
+  ) {
+    return false;
+  }
+
+  const bool presetSaved =
+    preferences.putUChar(
+      PREF_KEY_TIME_ZONE_PRESET,
+      static_cast<uint8_t>(
+        timeSettings.timeZone
+      )
+    ) > 0;
+
+  const bool formatSaved =
+    preferences.putBool(
+      PREF_KEY_CLOCK_24_HOUR,
+      timeSettings.use24Hour
+    ) > 0;
+
+  const bool secondsSaved =
+    preferences.putBool(
+      PREF_KEY_SHOW_SECONDS,
+      timeSettings.showSeconds
+    ) > 0;
+
+  preferences.end();
+
+  return
+    presetSaved &&
+    formatSaved &&
+    secondsSaved;
+}
+
