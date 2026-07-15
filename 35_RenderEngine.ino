@@ -5,11 +5,13 @@
 // Full-display layer order:
 //
 //   1. Earth map and day/night terminator
-//   2. ISS orbit track
-//   3. Sun
-//   4. Moon
-//   5. Current ISS marker
-//   6. Clock/status bar and IP address
+//   2. Optional latitude/longitude grid
+//   3. ISS orbit track
+//   4. Sun
+//   5. Moon
+//   6. Current ISS marker
+//   7. Optional home-location marker
+//   8. Clock/status bar and IP address
 //
 // The scheduler and recovery code call only redrawWorldClock() or
 // renderStatusBar(); they no longer need to know the layer order.
@@ -19,9 +21,11 @@ RenderState renderState;
 
 
 void renderOverlayLayers(time_t epoch) {
+  renderCoordinateGridOverlay();
   renderIssTrackOverlay();
   renderCelestialOverlays(epoch);
   renderIssOverlay();
+  renderHomeLocationOverlay();
 
   renderState.overlayLayersDrawn = true;
 }

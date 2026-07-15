@@ -87,6 +87,7 @@ unsigned long lastIssUpdate = 0;
 NetworkSettings networkSettings;
 OverlaySettings overlaySettings;
 DisplaySettings displaySettings;
+LocationGridSettings locationGridSettings;
 TimeSettings timeSettings;
 IssPosition issPosition;
 OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];

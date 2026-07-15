@@ -13,6 +13,7 @@ bool runtimeForgetPending = false;
 bool runtimePendingTimeZoneChanged = false;
 bool runtimePendingClockDisplayChanged = false;
 bool runtimePendingOrientationChanged = false;
+bool runtimePendingLocationGridChanged = false;
 unsigned long runtimeActionAt = 0;
 
 enum class RuntimeMapAction {
@@ -47,7 +48,7 @@ String htmlEscapeRuntime(const String &input) {
 
 String pageHeader(const String &title) {
   String page;
-  page.reserve(7000);
+  page.reserve(10000);
   page += F("<!doctype html><html><head><meta name=\"viewport\" "
             "content=\"width=device-width,initial-scale=1\"><meta charset=\"utf-8\">"
             "<style>body{font-family:Arial,sans-serif;background:#101820;color:#f2f4f7;"
@@ -233,6 +234,20 @@ String runtimeConfigurationPage(
   );
 
   summaryRow(
+    "Home marker",
+    locationGridSettings.showHomeMarker
+      ? formatHomeLocation()
+      : "Off"
+  );
+
+  summaryRow(
+    "Coordinate grid",
+    locationGridSettings.showCoordinateGrid
+      ? "On; 30-degree spacing"
+      : "Off"
+  );
+
+  summaryRow(
     "Overlays",
     String("Sun ") +
       (overlaySettings.showSun ? "on" : "off") +
@@ -385,6 +400,53 @@ String runtimeConfigurationPage(
   page += F(
     ">Flipped 180 degrees</option>"
     "</select>"
+    "<label>Home location and grid</label>"
+    "<label>Latitude (-90 to 90)</label>"
+    "<input id=\"homeLatitude\" type=\"text\" inputmode=\"decimal\" "
+    "maxlength=\"12\" value=\""
+  );
+
+  page +=
+    formatCoordinateInput(
+      locationGridSettings.homeLatitude
+    );
+
+  page += F(
+    "\">"
+    "<label>Longitude (-180 to 180)</label>"
+    "<input id=\"homeLongitude\" type=\"text\" inputmode=\"decimal\" "
+    "maxlength=\"13\" value=\""
+  );
+
+  page +=
+    formatCoordinateInput(
+      locationGridSettings.homeLongitude
+    );
+
+  page += F(
+    "\">"
+    "<label class=\"check\">"
+    "<input type=\"checkbox\" id=\"showHomeMarker\""
+  );
+
+  if (locationGridSettings.showHomeMarker) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show home-location marker</label>"
+    "<label class=\"check\">"
+    "<input type=\"checkbox\" id=\"showCoordinateGrid\""
+  );
+
+  if (locationGridSettings.showCoordinateGrid) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show 30-degree coordinate grid</label>"
+    "<p class=\"note\">The Equator and Prime Meridian are emphasized. "
+    "Coordinates use decimal degrees.</p>"
     "<label>Map overlays</label>"
     "<label class=\"check\">"
     "<input type=\"checkbox\" id=\"showSun\""
@@ -457,8 +519,10 @@ String runtimeConfigurationPage(
         "add('offsetMagnitude',document.getElementById('offsetMagnitude').value);"
         "add('use24Hour',document.getElementById('use24Hour').value);"
         "add('flip180',document.getElementById('flip180').value);"
-        "var checks=['showSeconds','showSun','showMoon','showISS',"
-          "'showIssTrack','issTrackDotted'];"
+        "add('homeLatitude',document.getElementById('homeLatitude').value);"
+        "add('homeLongitude',document.getElementById('homeLongitude').value);"
+        "var checks=['showSeconds','showHomeMarker','showCoordinateGrid',"
+          "'showSun','showMoon','showISS','showIssTrack','issTrackDotted'];"
         "for(var i=0;i<checks.length;i++){"
           "var e=document.getElementById(checks[i]);"
           "if(e&&e.checked){add(checks[i],'1');}"
@@ -508,7 +572,9 @@ void handleRuntimeSave() {
     !runtimeServer.hasArg("offsetMagnitude") ||
     !runtimeServer.hasArg("offsetSign") ||
     !runtimeServer.hasArg("use24Hour") ||
-    !runtimeServer.hasArg("flip180")
+    !runtimeServer.hasArg("flip180") ||
+    !runtimeServer.hasArg("homeLatitude") ||
+    !runtimeServer.hasArg("homeLongitude")
   ) {
     sendRuntimeHtml(
       400,
@@ -567,6 +633,34 @@ void handleRuntimeSave() {
       timeZoneValue
     );
 
+  double requestedHomeLatitude = 0.0;
+  double requestedHomeLongitude = 0.0;
+
+  if (
+    !parseCoordinateValue(
+      runtimeServer.arg("homeLatitude"),
+      -90.0,
+      90.0,
+      requestedHomeLatitude
+    ) ||
+    !parseCoordinateValue(
+      runtimeServer.arg("homeLongitude"),
+      -180.0,
+      180.0,
+      requestedHomeLongitude
+    )
+  ) {
+    sendRuntimeHtml(
+      400,
+      runtimeConfigurationPage(
+        "Enter a latitude from -90 through 90 and a longitude "
+        "from -180 through 180.",
+        true
+      )
+    );
+    return;
+  }
+
   const bool requested24Hour =
     runtimeServer.arg("use24Hour") != "0";
 
@@ -575,6 +669,12 @@ void handleRuntimeSave() {
 
   const bool requestedFlip180 =
     runtimeServer.arg("flip180") == "1";
+
+  const bool requestedShowHomeMarker =
+    runtimeServer.hasArg("showHomeMarker");
+
+  const bool requestedShowCoordinateGrid =
+    runtimeServer.hasArg("showCoordinateGrid");
 
   runtimePendingTimeZoneChanged =
     requestedTimeZone !=
@@ -596,6 +696,20 @@ void handleRuntimeSave() {
     requestedFlip180 !=
       displaySettings.flip180;
 
+  runtimePendingLocationGridChanged =
+    fabs(
+      requestedHomeLatitude -
+      locationGridSettings.homeLatitude
+    ) > 0.0000005 ||
+    fabs(
+      requestedHomeLongitude -
+      locationGridSettings.homeLongitude
+    ) > 0.0000005 ||
+    requestedShowHomeMarker !=
+      locationGridSettings.showHomeMarker ||
+    requestedShowCoordinateGrid !=
+      locationGridSettings.showCoordinateGrid;
+
   networkSettings.utcOffsetMinutes =
     offsetMinutes;
 
@@ -610,6 +724,18 @@ void handleRuntimeSave() {
 
   displaySettings.flip180 =
     requestedFlip180;
+
+  locationGridSettings.homeLatitude =
+    requestedHomeLatitude;
+
+  locationGridSettings.homeLongitude =
+    requestedHomeLongitude;
+
+  locationGridSettings.showHomeMarker =
+    requestedShowHomeMarker;
+
+  locationGridSettings.showCoordinateGrid =
+    requestedShowCoordinateGrid;
 
   overlaySettings.showSun =
     runtimeServer.hasArg("showSun");
@@ -640,13 +766,17 @@ void handleRuntimeSave() {
   const bool displaySaved =
     saveDisplaySettings();
 
+  const bool locationSaved =
+    saveLocationGridSettings();
+
   Serial.printf(
     "Runtime web: persistence results; "
-    "offset=%d time=%d overlays=%d display=%d\n",
+    "offset=%d time=%d overlays=%d display=%d location=%d\n",
     offsetSaved,
     timeSaved,
     overlaysSaved,
-    displaySaved
+    displaySaved,
+    locationSaved
   );
 
   runtimeApplyPending = true;
@@ -656,7 +786,8 @@ void handleRuntimeSave() {
     !offsetSaved ||
     !timeSaved ||
     !overlaysSaved ||
-    !displaySaved;
+    !displaySaved ||
+    !locationSaved;
 
   String message =
     "Settings accepted. The display is updating now.";
@@ -879,6 +1010,20 @@ String buildDiagnosticsPage() {
   row("Native LCD rotation", String(DISPLAY_ROTATION));
   row("Configured orientation", displayOrientationName());
   row("Effective LCD rotation", String(effectiveDisplayRotation()));
+  row(
+    "Home marker",
+    locationGridSettings.showHomeMarker
+      ? "Shown"
+      : "Hidden"
+  );
+  row("Home latitude", formatLatitude(locationGridSettings.homeLatitude));
+  row("Home longitude", formatLongitude(locationGridSettings.homeLongitude));
+  row(
+    "Coordinate grid",
+    locationGridSettings.showCoordinateGrid
+      ? "Shown; 30-degree spacing"
+      : "Hidden"
+  );
   row("Firmware", FIRMWARE_VERSION);
   row("Build timestamp", String(__DATE__) + " " + String(__TIME__));
   row("Uptime", formatUptime(millis()));
@@ -1044,17 +1189,22 @@ void serviceRuntimeConfigServer() {
     const bool orientationChanged =
       runtimePendingOrientationChanged;
 
+    const bool locationGridChanged =
+      runtimePendingLocationGridChanged;
+
     runtimePendingTimeZoneChanged = false;
     runtimePendingClockDisplayChanged = false;
     runtimePendingOrientationChanged = false;
+    runtimePendingLocationGridChanged = false;
 
     Serial.printf(
       "Runtime web: applying settings; "
       "timeZoneChanged=%d clockDisplayChanged=%d "
-      "orientationChanged=%d\n",
+      "orientationChanged=%d locationGridChanged=%d\n",
       timeZoneChanged,
       clockDisplayChanged,
-      orientationChanged
+      orientationChanged,
+      locationGridChanged
     );
 
     if (timeZoneChanged) {

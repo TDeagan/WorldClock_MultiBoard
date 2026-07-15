@@ -227,7 +227,7 @@ String configurationPage(
   bool isError = false
 ) {
   String page;
-  page.reserve(9000);
+  page.reserve(11000);
 
   page += F(
     "<!doctype html><html><head>"
@@ -374,6 +374,53 @@ String configurationPage(
 
   page += F(
     ">Show seconds</label>"
+    "<label>Home location and grid</label>"
+    "<label>Latitude (-90 to 90)</label>"
+    "<input name=\"homeLatitude\" type=\"text\" inputmode=\"decimal\" "
+    "maxlength=\"12\" value=\""
+  );
+
+  page +=
+    formatCoordinateInput(
+      locationGridSettings.homeLatitude
+    );
+
+  page += F(
+    "\">"
+    "<label>Longitude (-180 to 180)</label>"
+    "<input name=\"homeLongitude\" type=\"text\" inputmode=\"decimal\" "
+    "maxlength=\"13\" value=\""
+  );
+
+  page +=
+    formatCoordinateInput(
+      locationGridSettings.homeLongitude
+    );
+
+  page += F(
+    "\">"
+    "<label class=\"check\"><input type=\"checkbox\" "
+    "name=\"showHomeMarker\" value=\"1\""
+  );
+
+  if (locationGridSettings.showHomeMarker) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show home-location marker</label>"
+    "<label class=\"check\"><input type=\"checkbox\" "
+    "name=\"showCoordinateGrid\" value=\"1\""
+  );
+
+  if (locationGridSettings.showCoordinateGrid) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show 30-degree coordinate grid</label>"
+    "<p class=\"note\">The Equator and Prime Meridian are emphasized. "
+    "Coordinates use decimal degrees.</p>"
     "<label>Map overlays</label>"
     "<label class=\"check\"><input type=\"checkbox\" name=\"showSun\" value=\"1\""
   );
@@ -513,6 +560,35 @@ void handleConfigurationSave() {
     return;
   }
 
+  double requestedHomeLatitude = 0.0;
+  double requestedHomeLongitude = 0.0;
+
+  if (
+    !parseCoordinateValue(
+      portalServer.arg("homeLatitude"),
+      -90.0,
+      90.0,
+      requestedHomeLatitude
+    ) ||
+    !parseCoordinateValue(
+      portalServer.arg("homeLongitude"),
+      -180.0,
+      180.0,
+      requestedHomeLongitude
+    )
+  ) {
+    portalServer.send(
+      400,
+      "text/html",
+      configurationPage(
+        "Enter a latitude from -90 through 90 and a longitude "
+        "from -180 through 180.",
+        true
+      )
+    );
+    return;
+  }
+
   if (
     !saveNetworkSettings(
       ssid,
@@ -555,9 +631,31 @@ void handleConfigurationSave() {
   overlaySettings.issTrackDotted =
     portalServer.hasArg("issTrackDotted");
 
+  locationGridSettings.homeLatitude =
+    requestedHomeLatitude;
+
+  locationGridSettings.homeLongitude =
+    requestedHomeLongitude;
+
+  locationGridSettings.showHomeMarker =
+    portalServer.hasArg("showHomeMarker");
+
+  locationGridSettings.showCoordinateGrid =
+    portalServer.hasArg("showCoordinateGrid");
+
+  const bool timeSaved =
+    saveTimeSettings();
+
+  const bool overlaysSaved =
+    saveOverlaySettings();
+
+  const bool locationSaved =
+    saveLocationGridSettings();
+
   if (
-    !saveTimeSettings() ||
-    !saveOverlaySettings()
+    !timeSaved ||
+    !overlaysSaved ||
+    !locationSaved
   ) {
     portalServer.send(
       500,
@@ -934,6 +1032,7 @@ void runConfigurationPortal() {
 bool ensureNetworkConfigured() {
   loadOverlaySettings();
   loadTimeSettings();
+  loadLocationGridSettings();
   loadNetworkSettings();
 
   if (!networkSettings.configured) {
@@ -1160,4 +1259,114 @@ bool saveTimeSettings() {
     formatSaved &&
     secondsSaved;
 }
+
+
+bool loadLocationGridSettings() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      PREF_NAMESPACE,
+      true
+    )
+  ) {
+    locationGridSettings =
+      LocationGridSettings();
+
+    return false;
+  }
+
+  locationGridSettings.homeLatitude =
+    preferences.getDouble(
+      PREF_KEY_HOME_LATITUDE,
+      0.0
+    );
+
+  locationGridSettings.homeLongitude =
+    preferences.getDouble(
+      PREF_KEY_HOME_LONGITUDE,
+      0.0
+    );
+
+  locationGridSettings.showHomeMarker =
+    preferences.getBool(
+      PREF_KEY_SHOW_HOME_MARKER,
+      false
+    );
+
+  locationGridSettings.showCoordinateGrid =
+    preferences.getBool(
+      PREF_KEY_SHOW_COORDINATE_GRID,
+      false
+    );
+
+  preferences.end();
+
+  if (
+    !isfinite(
+      locationGridSettings.homeLatitude
+    ) ||
+    locationGridSettings.homeLatitude < -90.0 ||
+    locationGridSettings.homeLatitude > 90.0 ||
+    !isfinite(
+      locationGridSettings.homeLongitude
+    ) ||
+    locationGridSettings.homeLongitude < -180.0 ||
+    locationGridSettings.homeLongitude > 180.0
+  ) {
+    locationGridSettings =
+      LocationGridSettings();
+
+    return false;
+  }
+
+  return true;
+}
+
+
+bool saveLocationGridSettings() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      PREF_NAMESPACE,
+      false
+    )
+  ) {
+    return false;
+  }
+
+  const bool latitudeSaved =
+    preferences.putDouble(
+      PREF_KEY_HOME_LATITUDE,
+      locationGridSettings.homeLatitude
+    ) > 0;
+
+  const bool longitudeSaved =
+    preferences.putDouble(
+      PREF_KEY_HOME_LONGITUDE,
+      locationGridSettings.homeLongitude
+    ) > 0;
+
+  const bool markerSaved =
+    preferences.putBool(
+      PREF_KEY_SHOW_HOME_MARKER,
+      locationGridSettings.showHomeMarker
+    ) > 0;
+
+  const bool gridSaved =
+    preferences.putBool(
+      PREF_KEY_SHOW_COORDINATE_GRID,
+      locationGridSettings.showCoordinateGrid
+    ) > 0;
+
+  preferences.end();
+
+  return
+    latitudeSaved &&
+    longitudeSaved &&
+    markerSaved &&
+    gridSaved;
+}
+
 

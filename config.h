@@ -48,6 +48,15 @@ static constexpr int MOON_DISC_RADIUS = 6;
 // ISS is deliberately smaller than the Moon: a crisp 5 x 5 cyan plus.
 static constexpr int ISS_PLUS_ARM = 2;
 
+// Optional location/grid overlay appearance.
+static constexpr int LOCATION_GRID_STEP_DEGREES = 30;
+static constexpr uint16_t LOCATION_GRID_COLOR = 0x4208;
+static constexpr uint16_t LOCATION_AXIS_COLOR = 0xA514;
+static constexpr uint16_t HOME_MARKER_COLOR = TFT_MAGENTA;
+static constexpr uint16_t HOME_MARKER_CENTER_COLOR = TFT_WHITE;
+static constexpr int HOME_MARKER_RADIUS = 4;
+static constexpr int HOME_MARKER_ARM = 7;
+
 // ============================================================
 // BOARD HARDWARE ALIASES
 // ============================================================
@@ -187,6 +196,18 @@ static constexpr const char *PREF_KEY_CLOCK_24_HOUR =
 static constexpr const char *PREF_KEY_SHOW_SECONDS =
   "showSecs";
 
+static constexpr const char *PREF_KEY_HOME_LATITUDE =
+  "homeLat";
+
+static constexpr const char *PREF_KEY_HOME_LONGITUDE =
+  "homeLon";
+
+static constexpr const char *PREF_KEY_SHOW_HOME_MARKER =
+  "showHome";
+
+static constexpr const char *PREF_KEY_SHOW_COORDINATE_GRID =
+  "showGrid";
+
 static constexpr int MIN_UTC_OFFSET_MINUTES =
   -12 * 60;
 
@@ -238,7 +259,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "4.5";
+  "4.6";
 
 // ============================================================
 // STARTUP SPLASH
@@ -311,6 +332,13 @@ struct OverlaySettings {
 
 struct DisplaySettings {
   bool flip180 = false;
+};
+
+struct LocationGridSettings {
+  double homeLatitude = 0.0;
+  double homeLongitude = 0.0;
+  bool showHomeMarker = false;
+  bool showCoordinateGrid = false;
 };
 
 enum class TimeZonePreset : uint8_t {
@@ -414,6 +442,7 @@ extern unsigned long lastIssUpdate;
 extern NetworkSettings networkSettings;
 extern OverlaySettings overlaySettings;
 extern DisplaySettings displaySettings;
+extern LocationGridSettings locationGridSettings;
 extern TimeSettings timeSettings;
 extern IssPosition issPosition;
 extern OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];
@@ -458,6 +487,22 @@ const char *clockFormatName();
 time_t clockUpdateIntervalSeconds();
 String configuredPosixTimeZone();
 void applyConfiguredTimeZone();
+
+// Home-location and coordinate-grid helpers
+bool parseCoordinateValue(
+  const String &text,
+  double minimum,
+  double maximum,
+  double &valueOut
+);
+
+String formatCoordinateInput(double value);
+String formatLatitude(double latitude);
+String formatLongitude(double longitude);
+String formatHomeLocation();
+
+void renderCoordinateGridOverlay();
+void renderHomeLocationOverlay();
 
 // Internal math/map helpers
 static double norm180(double x);
@@ -596,6 +641,8 @@ bool loadDisplaySettings();
 bool saveDisplaySettings();
 bool loadTimeSettings();
 bool saveTimeSettings();
+bool loadLocationGridSettings();
+bool saveLocationGridSettings();
 
 void clearNetworkSettings();
 void serviceConfigurationButton();

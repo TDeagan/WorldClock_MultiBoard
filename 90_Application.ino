@@ -122,6 +122,10 @@ void initializeWorldClock() {
     effectiveDisplayRotation()
   );
 
+  if (!ensureNetworkConfigured()) {
+    return;
+  }
+
   Serial.printf(
     "Time zone: %s; clock: %s; seconds: %s\n",
     timeZoneDisplayName().c_str(),
@@ -129,9 +133,16 @@ void initializeWorldClock() {
     timeSettings.showSeconds ? "shown" : "hidden"
   );
 
-  if (!ensureNetworkConfigured()) {
-    return;
-  }
+  Serial.printf(
+    "Home marker: %s at %s; coordinate grid: %s\n",
+    locationGridSettings.showHomeMarker
+      ? "shown"
+      : "hidden",
+    formatHomeLocation().c_str(),
+    locationGridSettings.showCoordinateGrid
+      ? "shown"
+      : "hidden"
+  );
 
   startRuntimeConfigServer();
   systemStatus.wifiConnected = true;

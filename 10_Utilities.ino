@@ -96,6 +96,121 @@ const char *systemErrorName(
 }
 
 
+
+bool parseCoordinateValue(
+  const String &text,
+  double minimum,
+  double maximum,
+  double &valueOut
+) {
+  String cleaned = text;
+  cleaned.trim();
+
+  if (cleaned.length() == 0) {
+    return false;
+  }
+
+  char *endPointer = nullptr;
+
+  const double value =
+    strtod(
+      cleaned.c_str(),
+      &endPointer
+    );
+
+  if (
+    endPointer == cleaned.c_str() ||
+    *endPointer != '\0' ||
+    !isfinite(value) ||
+    value < minimum ||
+    value > maximum
+  ) {
+    return false;
+  }
+
+  valueOut =
+    fabs(value) < 0.0000005
+      ? 0.0
+      : value;
+
+  return true;
+}
+
+
+String formatCoordinateInput(
+  double value
+) {
+  if (fabs(value) < 0.00005) {
+    value = 0.0;
+  }
+
+  String text(value, 4);
+
+  while (
+    text.indexOf('.') >= 0 &&
+    text.endsWith("0")
+  ) {
+    text.remove(
+      text.length() - 1
+    );
+  }
+
+  if (text.endsWith(".")) {
+    text.remove(
+      text.length() - 1
+    );
+  }
+
+  return text;
+}
+
+
+String formatLatitude(
+  double latitude
+) {
+  const char hemisphere =
+    latitude < 0.0
+      ? 'S'
+      : 'N';
+
+  return
+    formatCoordinateInput(
+      fabs(latitude)
+    ) +
+    " deg " +
+    hemisphere;
+}
+
+
+String formatLongitude(
+  double longitude
+) {
+  const char hemisphere =
+    longitude < 0.0
+      ? 'W'
+      : 'E';
+
+  return
+    formatCoordinateInput(
+      fabs(longitude)
+    ) +
+    " deg " +
+    hemisphere;
+}
+
+
+String formatHomeLocation() {
+  return
+    formatLatitude(
+      locationGridSettings.homeLatitude
+    ) +
+    ", " +
+    formatLongitude(
+      locationGridSettings.homeLongitude
+    );
+}
+
+
 uint8_t effectiveDisplayRotation() {
   const uint8_t nativeRotation =
     static_cast<uint8_t>(DISPLAY_ROTATION);
