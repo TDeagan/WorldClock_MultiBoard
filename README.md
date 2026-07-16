@@ -1,4 +1,4 @@
-# ESP32 World Clock v5.0-alpha3
+# ESP32 World Clock v5.0-alpha4
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 ILI9341 screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, and a latitude/longitude grid.
 
@@ -57,9 +57,25 @@ Tap the bottom status bar on the clock display to open the touchscreen menu. The
 - Source-PNG map previews
 - Map selection and application
 - Daylight, night, and complete cache rebuild controls
+- Nearby Wi-Fi scanning, SSID selection, password entry, and connection testing
+- A Zoom R4-style on-screen keyboard with a selected character cell and four bottom controls: Cancel, left, right, and check
+- Saved-network removal with confirmation and automatic restart into setup mode
 - Touch, Wi-Fi, SD-card, NTP, and selected-map diagnostics
 
 Settings changed on the touchscreen use the same saved Preferences values as the browser controls. The menu returns to the clock automatically after one minute without activity.
+
+### Changing Wi-Fi from the touchscreen
+
+1. Tap the bottom status bar and choose **NETWORK**.
+2. Select one of the scanned networks. Use the paging arrows when more than three are listed.
+3. For a hidden network, choose **OTHER SSID** and enter its name.
+4. Choose **PASSWORD** to enter or edit the network password.
+5. On the keyboard, touch a character cell to select it. Use the bottom `<` and `>` controls to move the selection and the check control to enter the selected character.
+6. Select the keyboard's **ENTER** cell and press the check control to return to the Network page.
+7. Choose **CONNECT**. The clock tests the new credentials before saving them. If the test fails, it attempts to restore the previous network.
+8. To erase the saved network, choose **FORGET**, then **CONFIRM**. The clock restarts in first-time setup mode.
+
+The password keyboard includes uppercase, lowercase, number/symbol, space, delete, show/hide, and Enter cells. The Network page keeps passwords masked outside the keyboard.
 
 ### Opening the control panel later
 

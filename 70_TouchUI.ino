@@ -2,10 +2,10 @@
 // WorldClock Version 5 alpha touchscreen user interface
 // ============================================================
 //
-// Alpha 3 adds a functional Maps interface with a scrollable map catalog,
-// source-PNG preview, selection/apply controls, validation and cache status,
-// cache maintenance, and automatic fallback awareness. Network remains a
-// placeholder for a later alpha.
+// Alpha 4 adds touchscreen Wi-Fi scanning, tested-before-save connection
+// changes, saved-network removal, and a reusable Zoom R4-style on-screen
+// keyboard. The keyboard uses a selected cell plus CANCEL, left, right, and
+// check controls along the bottom; touching a cell moves the selection.
 // ============================================================
 
 namespace {
@@ -20,6 +20,7 @@ enum class TouchUiPage : uint8_t {
   MapPreview,
   MapMaintenance,
   Network,
+  Keyboard,
   Diagnostics
 };
 
@@ -46,6 +47,23 @@ enum class TouchUiButtonId : uint8_t {
   MapRebuildSelected,
   MapRebuildNight,
   MapRebuildAll,
+
+  NetworkRow0,
+  NetworkRow1,
+  NetworkRow2,
+  NetworkPagePrevious,
+  NetworkPageNext,
+  NetworkOtherSsid,
+  NetworkPassword,
+  NetworkScan,
+  NetworkForget,
+  NetworkConnect,
+
+  KeyboardCell,
+  KeyboardCancel,
+  KeyboardPrevious,
+  KeyboardNext,
+  KeyboardAccept,
 
   TimeZonePrevious,
   TimeZoneNext,
@@ -89,6 +107,43 @@ struct TouchUiButton {
   int h;
   const char *label;
   uint16_t fillColor;
+};
+
+enum class TouchKeyboardMode : uint8_t {
+  Upper,
+  Lower,
+  Symbols,
+  Symbols2
+};
+
+enum class TouchKeyboardTarget : uint8_t {
+  None,
+  Ssid,
+  Password
+};
+
+enum class TouchKeyboardCellKind : uint8_t {
+  Character,
+  Space,
+  Delete,
+  Upper,
+  Lower,
+  Symbols,
+  MoreSymbols,
+  ToggleMaskOrClear,
+  Enter
+};
+
+struct TouchKeyboardCell {
+  const char *label;
+  TouchKeyboardCellKind kind;
+  char value;
+};
+
+struct TouchNetworkEntry {
+  String ssid;
+  int32_t rssi = -127;
+  bool open = false;
 };
 
 // ------------------------------------------------------------
@@ -490,22 +545,277 @@ static constexpr TouchUiButton MAINTENANCE_HOME = {
 };
 
 // ------------------------------------------------------------
-// Placeholder and diagnostics buttons
+// Network and keyboard buttons
 // ------------------------------------------------------------
 
-static constexpr TouchUiButton PLACEHOLDER_BACK = {
+static constexpr TouchUiButton NETWORK_ROW_0 = {
+  TouchUiButtonId::NetworkRow0,
+  8, 43, 304, 34,
+  "",
+  0x2104
+};
+
+static constexpr TouchUiButton NETWORK_ROW_1 = {
+  TouchUiButtonId::NetworkRow1,
+  8, 80, 304, 34,
+  "",
+  0x2104
+};
+
+static constexpr TouchUiButton NETWORK_ROW_2 = {
+  TouchUiButtonId::NetworkRow2,
+  8, 117, 304, 34,
+  "",
+  0x2104
+};
+
+static constexpr TouchUiButton NETWORK_PAGE_PREVIOUS = {
+  TouchUiButtonId::NetworkPagePrevious,
+  8, 155, 48, 28,
+  "<",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton NETWORK_PAGE_NEXT = {
+  TouchUiButtonId::NetworkPageNext,
+  60, 155, 48, 28,
+  ">",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton NETWORK_OTHER_SSID = {
+  TouchUiButtonId::NetworkOtherSsid,
+  112, 155, 96, 28,
+  "OTHER SSID",
+  TFT_PURPLE
+};
+
+static constexpr TouchUiButton NETWORK_PASSWORD = {
+  TouchUiButtonId::NetworkPassword,
+  212, 155, 100, 28,
+  "PASSWORD",
+  TFT_NAVY
+};
+
+static constexpr TouchUiButton NETWORK_SCAN = {
+  TouchUiButtonId::NetworkScan,
+  8, 188, 70, 38,
+  "SCAN",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton NETWORK_FORGET = {
+  TouchUiButtonId::NetworkForget,
+  82, 188, 70, 38,
+  "FORGET",
+  TFT_MAROON
+};
+
+static constexpr TouchUiButton NETWORK_CONNECT = {
+  TouchUiButtonId::NetworkConnect,
+  156, 188, 78, 38,
+  "CONNECT",
+  TFT_DARKGREEN
+};
+
+static constexpr TouchUiButton NETWORK_BACK = {
   TouchUiButtonId::Back,
-  8, 188, 148, 40,
+  238, 188, 74, 38,
   "BACK",
   TFT_NAVY
 };
 
-static constexpr TouchUiButton PLACEHOLDER_HOME = {
-  TouchUiButtonId::Home,
-  164, 188, 148, 40,
-  "CLOCK",
+static constexpr TouchUiButton KEYBOARD_CANCEL = {
+  TouchUiButtonId::KeyboardCancel,
+  0, 198, 92, 42,
+  "CANCEL",
+  TFT_MAROON
+};
+
+static constexpr TouchUiButton KEYBOARD_PREVIOUS = {
+  TouchUiButtonId::KeyboardPrevious,
+  94, 198, 64, 42,
+  "<",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton KEYBOARD_NEXT = {
+  TouchUiButtonId::KeyboardNext,
+  160, 198, 64, 42,
+  ">",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton KEYBOARD_ACCEPT = {
+  TouchUiButtonId::KeyboardAccept,
+  226, 198, 94, 42,
+  "",
   TFT_DARKGREEN
 };
+
+static constexpr TouchKeyboardCell KEYBOARD_UPPER_CELLS[
+  TOUCH_KEYBOARD_CELL_COUNT
+] = {
+  {"A", TouchKeyboardCellKind::Character, 'A'},
+  {"B", TouchKeyboardCellKind::Character, 'B'},
+  {"C", TouchKeyboardCellKind::Character, 'C'},
+  {"D", TouchKeyboardCellKind::Character, 'D'},
+  {"E", TouchKeyboardCellKind::Character, 'E'},
+  {"F", TouchKeyboardCellKind::Character, 'F'},
+  {"G", TouchKeyboardCellKind::Character, 'G'},
+  {"H", TouchKeyboardCellKind::Character, 'H'},
+
+  {"I", TouchKeyboardCellKind::Character, 'I'},
+  {"J", TouchKeyboardCellKind::Character, 'J'},
+  {"K", TouchKeyboardCellKind::Character, 'K'},
+  {"L", TouchKeyboardCellKind::Character, 'L'},
+  {"M", TouchKeyboardCellKind::Character, 'M'},
+  {"N", TouchKeyboardCellKind::Character, 'N'},
+  {"O", TouchKeyboardCellKind::Character, 'O'},
+  {"P", TouchKeyboardCellKind::Character, 'P'},
+
+  {"Q", TouchKeyboardCellKind::Character, 'Q'},
+  {"R", TouchKeyboardCellKind::Character, 'R'},
+  {"S", TouchKeyboardCellKind::Character, 'S'},
+  {"T", TouchKeyboardCellKind::Character, 'T'},
+  {"U", TouchKeyboardCellKind::Character, 'U'},
+  {"V", TouchKeyboardCellKind::Character, 'V'},
+  {"W", TouchKeyboardCellKind::Character, 'W'},
+  {"X", TouchKeyboardCellKind::Character, 'X'},
+
+  {"Y", TouchKeyboardCellKind::Character, 'Y'},
+  {"Z", TouchKeyboardCellKind::Character, 'Z'},
+  {"SPACE", TouchKeyboardCellKind::Space, 0},
+  {"DEL", TouchKeyboardCellKind::Delete, 0},
+  {"abc", TouchKeyboardCellKind::Lower, 0},
+  {"123", TouchKeyboardCellKind::Symbols, 0},
+  {"SHOW", TouchKeyboardCellKind::ToggleMaskOrClear, 0},
+  {"ENTER", TouchKeyboardCellKind::Enter, 0}
+};
+
+static constexpr TouchKeyboardCell KEYBOARD_LOWER_CELLS[
+  TOUCH_KEYBOARD_CELL_COUNT
+] = {
+  {"a", TouchKeyboardCellKind::Character, 'a'},
+  {"b", TouchKeyboardCellKind::Character, 'b'},
+  {"c", TouchKeyboardCellKind::Character, 'c'},
+  {"d", TouchKeyboardCellKind::Character, 'd'},
+  {"e", TouchKeyboardCellKind::Character, 'e'},
+  {"f", TouchKeyboardCellKind::Character, 'f'},
+  {"g", TouchKeyboardCellKind::Character, 'g'},
+  {"h", TouchKeyboardCellKind::Character, 'h'},
+
+  {"i", TouchKeyboardCellKind::Character, 'i'},
+  {"j", TouchKeyboardCellKind::Character, 'j'},
+  {"k", TouchKeyboardCellKind::Character, 'k'},
+  {"l", TouchKeyboardCellKind::Character, 'l'},
+  {"m", TouchKeyboardCellKind::Character, 'm'},
+  {"n", TouchKeyboardCellKind::Character, 'n'},
+  {"o", TouchKeyboardCellKind::Character, 'o'},
+  {"p", TouchKeyboardCellKind::Character, 'p'},
+
+  {"q", TouchKeyboardCellKind::Character, 'q'},
+  {"r", TouchKeyboardCellKind::Character, 'r'},
+  {"s", TouchKeyboardCellKind::Character, 's'},
+  {"t", TouchKeyboardCellKind::Character, 't'},
+  {"u", TouchKeyboardCellKind::Character, 'u'},
+  {"v", TouchKeyboardCellKind::Character, 'v'},
+  {"w", TouchKeyboardCellKind::Character, 'w'},
+  {"x", TouchKeyboardCellKind::Character, 'x'},
+
+  {"y", TouchKeyboardCellKind::Character, 'y'},
+  {"z", TouchKeyboardCellKind::Character, 'z'},
+  {"SPACE", TouchKeyboardCellKind::Space, 0},
+  {"DEL", TouchKeyboardCellKind::Delete, 0},
+  {"ABC", TouchKeyboardCellKind::Upper, 0},
+  {"123", TouchKeyboardCellKind::Symbols, 0},
+  {"SHOW", TouchKeyboardCellKind::ToggleMaskOrClear, 0},
+  {"ENTER", TouchKeyboardCellKind::Enter, 0}
+};
+
+static constexpr TouchKeyboardCell KEYBOARD_SYMBOL_CELLS[
+  TOUCH_KEYBOARD_CELL_COUNT
+] = {
+  {"1", TouchKeyboardCellKind::Character, '1'},
+  {"2", TouchKeyboardCellKind::Character, '2'},
+  {"3", TouchKeyboardCellKind::Character, '3'},
+  {"4", TouchKeyboardCellKind::Character, '4'},
+  {"5", TouchKeyboardCellKind::Character, '5'},
+  {"6", TouchKeyboardCellKind::Character, '6'},
+  {"7", TouchKeyboardCellKind::Character, '7'},
+  {"8", TouchKeyboardCellKind::Character, '8'},
+
+  {"9", TouchKeyboardCellKind::Character, '9'},
+  {"0", TouchKeyboardCellKind::Character, '0'},
+  {"!", TouchKeyboardCellKind::Character, '!'},
+  {"@", TouchKeyboardCellKind::Character, '@'},
+  {"#", TouchKeyboardCellKind::Character, '#'},
+  {"$", TouchKeyboardCellKind::Character, '$'},
+  {"%", TouchKeyboardCellKind::Character, '%'},
+  {"^", TouchKeyboardCellKind::Character, '^'},
+
+  {"&", TouchKeyboardCellKind::Character, '&'},
+  {"*", TouchKeyboardCellKind::Character, '*'},
+  {"(", TouchKeyboardCellKind::Character, '('},
+  {")", TouchKeyboardCellKind::Character, ')'},
+  {"-", TouchKeyboardCellKind::Character, '-'},
+  {"_", TouchKeyboardCellKind::Character, '_'},
+  {"+", TouchKeyboardCellKind::Character, '+'},
+  {"=", TouchKeyboardCellKind::Character, '='},
+
+  {".", TouchKeyboardCellKind::Character, '.'},
+  {"SPACE", TouchKeyboardCellKind::Space, 0},
+  {"DEL", TouchKeyboardCellKind::Delete, 0},
+  {"ABC", TouchKeyboardCellKind::Upper, 0},
+  {"abc", TouchKeyboardCellKind::Lower, 0},
+  {"MORE", TouchKeyboardCellKind::MoreSymbols, 0},
+  {"SHOW", TouchKeyboardCellKind::ToggleMaskOrClear, 0},
+  {"ENTER", TouchKeyboardCellKind::Enter, 0}
+};
+
+static constexpr TouchKeyboardCell KEYBOARD_SYMBOL2_CELLS[
+  TOUCH_KEYBOARD_CELL_COUNT
+] = {
+  {"\"", TouchKeyboardCellKind::Character, '"'},
+  {"'", TouchKeyboardCellKind::Character, '\''},
+  {",", TouchKeyboardCellKind::Character, ','},
+  {"/", TouchKeyboardCellKind::Character, '/'},
+  {":", TouchKeyboardCellKind::Character, ':'},
+  {";", TouchKeyboardCellKind::Character, ';'},
+  {"<", TouchKeyboardCellKind::Character, '<'},
+  {">", TouchKeyboardCellKind::Character, '>'},
+
+  {"?", TouchKeyboardCellKind::Character, '?'},
+  {"[", TouchKeyboardCellKind::Character, '['},
+  {"\\", TouchKeyboardCellKind::Character, '\\'},
+  {"]", TouchKeyboardCellKind::Character, ']'},
+  {"{", TouchKeyboardCellKind::Character, '{'},
+  {"|", TouchKeyboardCellKind::Character, '|'},
+  {"}", TouchKeyboardCellKind::Character, '}'},
+  {"~", TouchKeyboardCellKind::Character, '~'},
+
+  {"`", TouchKeyboardCellKind::Character, '`'},
+  {".", TouchKeyboardCellKind::Character, '.'},
+  {"-", TouchKeyboardCellKind::Character, '-'},
+  {"_", TouchKeyboardCellKind::Character, '_'},
+  {"@", TouchKeyboardCellKind::Character, '@'},
+  {"#", TouchKeyboardCellKind::Character, '#'},
+  {"$", TouchKeyboardCellKind::Character, '$'},
+  {"&", TouchKeyboardCellKind::Character, '&'},
+
+  {"123", TouchKeyboardCellKind::Symbols, 0},
+  {"SPACE", TouchKeyboardCellKind::Space, 0},
+  {"DEL", TouchKeyboardCellKind::Delete, 0},
+  {"ABC", TouchKeyboardCellKind::Upper, 0},
+  {"abc", TouchKeyboardCellKind::Lower, 0},
+  {"!", TouchKeyboardCellKind::Character, '!'},
+  {"SHOW", TouchKeyboardCellKind::ToggleMaskOrClear, 0},
+  {"ENTER", TouchKeyboardCellKind::Enter, 0}
+};
+
+// ------------------------------------------------------------
+// Placeholder and diagnostics buttons
+// ------------------------------------------------------------
 
 static constexpr TouchUiButton BUTTON_PRESSURE_DOWN = {
   TouchUiButtonId::PressureDown,
@@ -610,9 +920,25 @@ static constexpr const TouchUiButton *MAP_MAINTENANCE_BUTTONS[] = {
   &MAINTENANCE_HOME
 };
 
-static constexpr const TouchUiButton *PLACEHOLDER_BUTTONS[] = {
-  &PLACEHOLDER_BACK,
-  &PLACEHOLDER_HOME
+static constexpr const TouchUiButton *NETWORK_BUTTONS[] = {
+  &NETWORK_ROW_0,
+  &NETWORK_ROW_1,
+  &NETWORK_ROW_2,
+  &NETWORK_PAGE_PREVIOUS,
+  &NETWORK_PAGE_NEXT,
+  &NETWORK_OTHER_SSID,
+  &NETWORK_PASSWORD,
+  &NETWORK_SCAN,
+  &NETWORK_FORGET,
+  &NETWORK_CONNECT,
+  &NETWORK_BACK
+};
+
+static constexpr const TouchUiButton *KEYBOARD_BUTTONS[] = {
+  &KEYBOARD_CANCEL,
+  &KEYBOARD_PREVIOUS,
+  &KEYBOARD_NEXT,
+  &KEYBOARD_ACCEPT
 };
 
 static constexpr const TouchUiButton *DIAGNOSTIC_BUTTONS[] = {
@@ -665,6 +991,28 @@ String touchMapMessage;
 bool touchMapMessageError = false;
 bool touchMapFullValidation = false;
 
+TouchNetworkEntry touchNetworkCatalog[TOUCH_NETWORK_MAX_RESULTS];
+size_t touchNetworkCatalogCount = 0;
+size_t touchNetworkListOffset = 0;
+int touchNetworkDraftIndex = -1;
+String touchNetworkDraftSsid;
+String touchNetworkDraftPassword;
+String touchNetworkMessage;
+bool touchNetworkMessageError = false;
+bool touchNetworkForgetArmed = false;
+
+TouchKeyboardMode touchKeyboardMode =
+  TouchKeyboardMode::Upper;
+
+TouchKeyboardTarget touchKeyboardTarget =
+  TouchKeyboardTarget::None;
+
+String touchKeyboardValue;
+String touchKeyboardOriginalValue;
+size_t touchKeyboardSelectedCell = 0;
+int touchKeyboardPressedCell = -1;
+bool touchKeyboardRevealPassword = false;
+
 static constexpr size_t TOUCH_MAP_ROWS_PER_PAGE = 3;
 
 static constexpr double COORDINATE_STEPS[] = {
@@ -699,7 +1047,6 @@ void drawTouchUiSettingsHint(const char *text = "Tap a value to change it");
 void drawTouchUiRow(int y, const char *label);
 void drawTouchUiMainMenu();
 const char *touchUiPageTitle(TouchUiPage page);
-void drawTouchUiPlaceholder(TouchUiPage page);
 void drawTouchUiTimeDisplay();
 void drawTouchUiLocation();
 void drawTouchUiOverlays();
@@ -716,6 +1063,30 @@ void applyTouchUiMap();
 void rebuildTouchUiSelectedMapCache();
 void rebuildTouchUiNightCache();
 void rebuildTouchUiAllCaches();
+
+int touchNetworkCatalogIndexForRowButton(TouchUiButtonId id);
+void scanTouchNetworks();
+void drawTouchUiNetwork();
+void drawTouchUiNetworkRow(size_t visibleRow, bool pressed = false);
+void drawTouchUiNetworkMessage();
+bool touchNetworkDraftIsOpen();
+void openTouchKeyboard(
+  TouchKeyboardTarget target,
+  const String &initialValue
+);
+void drawTouchUiKeyboard();
+void drawTouchKeyboardCell(size_t index, bool pressed = false);
+int touchKeyboardCellAt(int x, int y);
+const TouchKeyboardCell *activeTouchKeyboardCells();
+String touchKeyboardCellLabel(size_t index);
+String touchKeyboardDisplayValue();
+void moveTouchKeyboardSelection(int delta);
+void activateTouchKeyboardSelection();
+void cancelTouchKeyboard();
+void completeTouchKeyboard();
+void connectTouchNetwork();
+void forgetTouchNetwork();
+
 void drawTouchUiDiagnosticsData();
 void drawTouchUiDiagnostics();
 void drawActiveTouchUiPage();
@@ -813,10 +1184,17 @@ void touchUiButtonsForPage(
       break;
 
     case TouchUiPage::Network:
-      buttonsOut = PLACEHOLDER_BUTTONS;
+      buttonsOut = NETWORK_BUTTONS;
       buttonCountOut =
-        sizeof(PLACEHOLDER_BUTTONS) /
-        sizeof(PLACEHOLDER_BUTTONS[0]);
+        sizeof(NETWORK_BUTTONS) /
+        sizeof(NETWORK_BUTTONS[0]);
+      break;
+
+    case TouchUiPage::Keyboard:
+      buttonsOut = KEYBOARD_BUTTONS;
+      buttonCountOut =
+        sizeof(KEYBOARD_BUTTONS) /
+        sizeof(KEYBOARD_BUTTONS[0]);
       break;
 
     case TouchUiPage::Clock:
@@ -872,6 +1250,14 @@ TouchUiButtonId touchUiButtonAt(
       TouchUiButtonId::None;
   }
 
+  if (
+    activeTouchUiPage ==
+      TouchUiPage::Keyboard &&
+    touchKeyboardCellAt(x, y) >= 0
+  ) {
+    return TouchUiButtonId::KeyboardCell;
+  }
+
   const TouchUiButton *const *buttons =
     nullptr;
 
@@ -895,6 +1281,17 @@ TouchUiButtonId touchUiButtonAt(
         buttons[i]->id == TouchUiButtonId::MapRow2
       ) &&
       touchMapCatalogIndexForRowButton(buttons[i]->id) < 0
+    ) {
+      continue;
+    }
+
+    if (
+      (
+        buttons[i]->id == TouchUiButtonId::NetworkRow0 ||
+        buttons[i]->id == TouchUiButtonId::NetworkRow1 ||
+        buttons[i]->id == TouchUiButtonId::NetworkRow2
+      ) &&
+      touchNetworkCatalogIndexForRowButton(buttons[i]->id) < 0
     ) {
       continue;
     }
@@ -949,6 +1346,180 @@ bool touchMapDraftIsUsable() {
     touchMapDraftIndex >= 0 &&
     static_cast<size_t>(touchMapDraftIndex) < touchMapCatalogCount &&
     touchMapCatalog[touchMapDraftIndex].pngValid;
+}
+
+
+int touchNetworkCatalogIndexForRowButton(
+  TouchUiButtonId id
+) {
+  size_t visibleRow =
+    TOUCH_NETWORK_ROWS_PER_PAGE;
+
+  switch (id) {
+    case TouchUiButtonId::NetworkRow0:
+      visibleRow = 0;
+      break;
+
+    case TouchUiButtonId::NetworkRow1:
+      visibleRow = 1;
+      break;
+
+    case TouchUiButtonId::NetworkRow2:
+      visibleRow = 2;
+      break;
+
+    default:
+      return -1;
+  }
+
+  const size_t catalogIndex =
+    touchNetworkListOffset + visibleRow;
+
+  return catalogIndex < touchNetworkCatalogCount
+    ? static_cast<int>(catalogIndex)
+    : -1;
+}
+
+
+bool touchNetworkDraftIsOpen() {
+  return
+    touchNetworkDraftIndex >= 0 &&
+    static_cast<size_t>(touchNetworkDraftIndex) <
+      touchNetworkCatalogCount &&
+    touchNetworkCatalog[
+      touchNetworkDraftIndex
+    ].open;
+}
+
+
+const TouchKeyboardCell *activeTouchKeyboardCells() {
+  switch (touchKeyboardMode) {
+    case TouchKeyboardMode::Lower:
+      return KEYBOARD_LOWER_CELLS;
+
+    case TouchKeyboardMode::Symbols:
+      return KEYBOARD_SYMBOL_CELLS;
+
+    case TouchKeyboardMode::Symbols2:
+      return KEYBOARD_SYMBOL2_CELLS;
+
+    case TouchKeyboardMode::Upper:
+    default:
+      return KEYBOARD_UPPER_CELLS;
+  }
+}
+
+
+int touchKeyboardCellAt(
+  int x,
+  int y
+) {
+  static constexpr int GRID_TOP = 68;
+  static constexpr int CELL_W =
+    SCREEN_W / TOUCH_KEYBOARD_COLUMNS;
+  static constexpr int CELL_H = 30;
+
+  if (
+    x < 0 ||
+    x >= SCREEN_W ||
+    y < GRID_TOP ||
+    y >= GRID_TOP +
+      static_cast<int>(
+        TOUCH_KEYBOARD_ROWS
+      ) * CELL_H
+  ) {
+    return -1;
+  }
+
+  const int column =
+    x / CELL_W;
+
+  const int row =
+    (y - GRID_TOP) / CELL_H;
+
+  const int index =
+    row *
+      static_cast<int>(
+        TOUCH_KEYBOARD_COLUMNS
+      ) +
+    column;
+
+  return
+    index >= 0 &&
+    index <
+      static_cast<int>(
+        TOUCH_KEYBOARD_CELL_COUNT
+      )
+      ? index
+      : -1;
+}
+
+
+String touchKeyboardCellLabel(
+  size_t index
+) {
+  if (index >= TOUCH_KEYBOARD_CELL_COUNT) {
+    return "";
+  }
+
+  const TouchKeyboardCell &cell =
+    activeTouchKeyboardCells()[index];
+
+  if (
+    cell.kind ==
+      TouchKeyboardCellKind::ToggleMaskOrClear
+  ) {
+    if (
+      touchKeyboardTarget ==
+        TouchKeyboardTarget::Password
+    ) {
+      return touchKeyboardRevealPassword
+        ? "HIDE"
+        : "SHOW";
+    }
+
+    return "CLEAR";
+  }
+
+  return String(cell.label);
+}
+
+
+String touchKeyboardDisplayValue() {
+  String displayed;
+
+  if (
+    touchKeyboardTarget ==
+      TouchKeyboardTarget::Password &&
+    !touchKeyboardRevealPassword
+  ) {
+    displayed.reserve(
+      touchKeyboardValue.length()
+    );
+
+    for (
+      size_t i = 0;
+      i < touchKeyboardValue.length();
+      ++i
+    ) {
+      displayed += '*';
+    }
+  } else {
+    displayed = touchKeyboardValue;
+  }
+
+  static constexpr size_t MAX_VISIBLE = 38;
+
+  if (displayed.length() > MAX_VISIBLE) {
+    displayed =
+      String("...") +
+      displayed.substring(
+        displayed.length() -
+          (MAX_VISIBLE - 3)
+      );
+  }
+
+  return displayed;
 }
 
 
@@ -1033,6 +1604,16 @@ String touchUiButtonDisplayLabel(
         ? "DOTTED"
         : "SOLID";
 
+    case TouchUiButtonId::NetworkPassword:
+      return touchNetworkDraftPassword.length() > 0
+        ? "PASSWORD SET"
+        : "PASSWORD";
+
+    case TouchUiButtonId::NetworkForget:
+      return touchNetworkForgetArmed
+        ? "CONFIRM"
+        : "FORGET";
+
     default:
       return String(button.label);
   }
@@ -1056,6 +1637,26 @@ void drawTouchUiButton(
     }
 
     drawTouchUiMapRow(
+      visibleRow,
+      pressed
+    );
+    return;
+  }
+
+  if (
+    button.id == TouchUiButtonId::NetworkRow0 ||
+    button.id == TouchUiButtonId::NetworkRow1 ||
+    button.id == TouchUiButtonId::NetworkRow2
+  ) {
+    size_t visibleRow = 0;
+
+    if (button.id == TouchUiButtonId::NetworkRow1) {
+      visibleRow = 1;
+    } else if (button.id == TouchUiButtonId::NetworkRow2) {
+      visibleRow = 2;
+    }
+
+    drawTouchUiNetworkRow(
       visibleRow,
       pressed
     );
@@ -1103,11 +1704,46 @@ void drawTouchUiButton(
     fillColor
   );
 
-  lcd.drawString(
-    touchUiButtonDisplayLabel(button),
-    button.x + button.w / 2,
-    button.y + button.h / 2
-  );
+  if (
+    button.id ==
+      TouchUiButtonId::KeyboardAccept
+  ) {
+    const int centerX =
+      button.x + button.w / 2;
+
+    const int centerY =
+      button.y + button.h / 2;
+
+    lcd.drawLine(
+      centerX - 13,
+      centerY,
+      centerX - 4,
+      centerY + 9,
+      textColor
+    );
+
+    lcd.drawLine(
+      centerX - 4,
+      centerY + 9,
+      centerX + 15,
+      centerY - 10,
+      textColor
+    );
+
+    lcd.drawLine(
+      centerX - 12,
+      centerY - 1,
+      centerX - 3,
+      centerY + 8,
+      textColor
+    );
+  } else {
+    lcd.drawString(
+      touchUiButtonDisplayLabel(button),
+      button.x + button.w / 2,
+      button.y + button.h / 2
+    );
+  }
 }
 
 void setActiveTouchUiButton(
@@ -1324,6 +1960,12 @@ const char *touchUiPageTitle(
     case TouchUiPage::Network:
       return "NETWORK";
 
+    case TouchUiPage::Keyboard:
+      return touchKeyboardTarget ==
+        TouchKeyboardTarget::Password
+          ? "WI-FI PASSWORD"
+          : "WI-FI SSID";
+
     case TouchUiPage::Diagnostics:
       return "DIAGNOSTICS";
 
@@ -1334,70 +1976,6 @@ const char *touchUiPageTitle(
     default:
       return "WORLD CLOCK";
   }
-}
-
-void drawTouchUiPlaceholder(
-  TouchUiPage page
-) {
-  drawTouchUiHeader(
-    touchUiPageTitle(page)
-  );
-
-  lcd.setFont(
-    &fonts::Font2
-  );
-
-  lcd.setTextDatum(
-    textdatum_t::middle_center
-  );
-
-  lcd.setTextColor(
-    TFT_WHITE,
-    TFT_BLACK
-  );
-
-  lcd.drawString(
-    "Page reserved for a later alpha",
-    SCREEN_W / 2,
-    84
-  );
-
-  lcd.setFont(
-    &fonts::Font0
-  );
-
-  lcd.setTextColor(
-    TFT_CYAN,
-    TFT_BLACK
-  );
-
-  lcd.drawString(
-    "Wi-Fi scan and keyboard controls will be added later.",
-    SCREEN_W / 2,
-    112
-  );
-
-  lcd.setTextColor(
-    TFT_YELLOW,
-    TFT_BLACK
-  );
-
-  lcd.drawString(
-    "Browser configuration remains fully active.",
-    SCREEN_W / 2,
-    132
-  );
-
-  for (
-    const TouchUiButton *button :
-      PLACEHOLDER_BUTTONS
-  ) {
-    drawTouchUiButton(
-      *button
-    );
-  }
-
-  drawTouchUiFooter();
 }
 
 // ------------------------------------------------------------
@@ -2480,6 +3058,896 @@ void rebuildTouchUiAllCaches() {
 
 
 // ------------------------------------------------------------
+// Network page and Zoom R4-style keyboard
+// ------------------------------------------------------------
+
+void scanTouchNetworks() {
+  const String preferredSsid =
+    touchNetworkDraftSsid;
+
+  drawTouchUiBusy(
+    "WI-FI SCAN",
+    "Searching for nearby networks"
+  );
+
+const wifi_mode_t currentMode =
+  WiFi.getMode();
+
+WiFi.mode(
+  currentMode == WIFI_AP ||
+  currentMode == WIFI_AP_STA
+    ? WIFI_AP_STA
+    : WIFI_STA
+);
+
+  const int found =
+    WiFi.scanNetworks(
+      false,
+      true
+    );
+
+  touchNetworkCatalogCount = 0;
+  touchNetworkDraftIndex = -1;
+  touchNetworkListOffset = 0;
+  touchNetworkForgetArmed = false;
+
+  if (found < 0) {
+    touchNetworkMessage =
+      "Wi-Fi scan failed";
+    touchNetworkMessageError = true;
+    WiFi.scanDelete();
+    drawTouchUiNetwork();
+    return;
+  }
+
+  for (
+    int i = 0;
+    i < found &&
+      touchNetworkCatalogCount <
+        TOUCH_NETWORK_MAX_RESULTS;
+    ++i
+  ) {
+    const String ssid =
+      WiFi.SSID(i);
+
+    if (ssid.length() == 0) {
+      continue;
+    }
+
+    bool duplicate = false;
+
+    for (
+      size_t j = 0;
+      j < touchNetworkCatalogCount;
+      ++j
+    ) {
+      if (
+        touchNetworkCatalog[j].ssid ==
+          ssid
+      ) {
+        duplicate = true;
+        break;
+      }
+    }
+
+    if (duplicate) {
+      continue;
+    }
+
+    TouchNetworkEntry &entry =
+      touchNetworkCatalog[
+        touchNetworkCatalogCount++
+      ];
+
+    entry.ssid = ssid;
+    entry.rssi = WiFi.RSSI(i);
+    entry.open =
+      WiFi.encryptionType(i) ==
+        WIFI_AUTH_OPEN;
+  }
+
+  WiFi.scanDelete();
+
+  String selectedSsid =
+    preferredSsid;
+
+  if (
+    selectedSsid.length() == 0 &&
+    networkSettings.configured
+  ) {
+    selectedSsid =
+      networkSettings.ssid;
+  }
+
+  for (
+    size_t i = 0;
+    i < touchNetworkCatalogCount;
+    ++i
+  ) {
+    if (
+      touchNetworkCatalog[i].ssid ==
+        selectedSsid
+    ) {
+      touchNetworkDraftIndex =
+        static_cast<int>(i);
+
+      touchNetworkDraftSsid =
+        touchNetworkCatalog[i].ssid;
+
+      touchNetworkListOffset =
+        (i / TOUCH_NETWORK_ROWS_PER_PAGE) *
+        TOUCH_NETWORK_ROWS_PER_PAGE;
+      break;
+    }
+  }
+
+  if (touchNetworkCatalogCount == 0) {
+    touchNetworkMessage =
+      "No visible Wi-Fi networks found";
+    touchNetworkMessageError = true;
+  } else {
+    touchNetworkMessage =
+      String(touchNetworkCatalogCount) +
+      " network" +
+      (touchNetworkCatalogCount == 1
+        ? " found"
+        : "s found");
+    touchNetworkMessageError = false;
+  }
+
+  drawTouchUiNetwork();
+}
+
+
+void drawTouchUiNetworkRow(
+  size_t visibleRow,
+  bool pressed
+) {
+  const size_t catalogIndex =
+    touchNetworkListOffset + visibleRow;
+
+  static constexpr int ROW_Y[] = {
+    43,
+    80,
+    117
+  };
+
+  const int y =
+    ROW_Y[visibleRow];
+
+  if (catalogIndex >= touchNetworkCatalogCount) {
+    lcd.fillRoundRect(
+      8,
+      y,
+      304,
+      34,
+      4,
+      TFT_BLACK
+    );
+
+    lcd.drawRoundRect(
+      8,
+      y,
+      304,
+      34,
+      4,
+      TFT_DARKGREY
+    );
+    return;
+  }
+
+  const TouchNetworkEntry &entry =
+    touchNetworkCatalog[catalogIndex];
+
+  const bool selected =
+    static_cast<int>(catalogIndex) ==
+      touchNetworkDraftIndex ||
+    (
+      touchNetworkDraftIndex < 0 &&
+      entry.ssid == touchNetworkDraftSsid
+    );
+
+  const bool connected =
+    WiFi.status() == WL_CONNECTED &&
+    WiFi.SSID() == entry.ssid;
+
+  const bool saved =
+    networkSettings.configured &&
+    networkSettings.ssid == entry.ssid;
+
+  const uint16_t fillColor =
+    pressed
+      ? TFT_YELLOW
+      : selected
+        ? 0x4208
+        : 0x2104;
+
+  const uint16_t textColor =
+    pressed
+      ? TFT_BLACK
+      : TFT_WHITE;
+
+  lcd.fillRoundRect(
+    8,
+    y,
+    304,
+    34,
+    4,
+    fillColor
+  );
+
+  lcd.drawRoundRect(
+    8,
+    y,
+    304,
+    34,
+    4,
+    selected
+      ? TFT_YELLOW
+      : connected
+        ? TFT_CYAN
+        : TFT_DARKGREY
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::top_left
+  );
+
+  lcd.setTextColor(
+    textColor,
+    fillColor
+  );
+
+  lcd.drawString(
+    shortenedTouchMapFilename(
+      entry.ssid,
+      30
+    ),
+    15,
+    y + 4
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::top_right
+  );
+
+  lcd.drawString(
+    String(entry.rssi) + " dBm",
+    305,
+    y + 4
+  );
+
+  String status =
+    entry.open
+      ? "OPEN"
+      : "SECURED";
+
+  if (connected) {
+    status += "  CONNECTED";
+  } else if (saved) {
+    status += "  SAVED";
+  }
+
+  lcd.setTextDatum(
+    textdatum_t::bottom_left
+  );
+
+  lcd.setTextColor(
+    pressed
+      ? TFT_BLACK
+      : entry.open
+        ? TFT_GREEN
+        : TFT_CYAN,
+    fillColor
+  );
+
+  lcd.drawString(
+    status,
+    15,
+    y + 30
+  );
+}
+
+
+void drawTouchUiNetworkMessage() {
+  String message =
+    touchNetworkMessage;
+
+  if (message.length() == 0) {
+    if (touchNetworkDraftSsid.length() > 0) {
+      message =
+        String("Selected: ") +
+        touchNetworkDraftSsid;
+    } else {
+      message =
+        "Select a network or choose OTHER SSID";
+    }
+  }
+
+  message =
+    shortenedTouchMapFilename(
+      message,
+      48
+    );
+
+  lcd.fillRect(
+    0,
+    30,
+    SCREEN_W,
+    12,
+    TFT_BLACK
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::middle_center
+  );
+
+  lcd.setTextColor(
+    touchNetworkMessageError
+      ? TFT_RED
+      : TFT_CYAN,
+    TFT_BLACK
+  );
+
+  lcd.drawString(
+    message,
+    SCREEN_W / 2,
+    35
+  );
+}
+
+
+void drawTouchUiNetwork() {
+  drawTouchUiHeader(
+    "NETWORK"
+  );
+
+  drawTouchUiNetworkMessage();
+
+  drawTouchUiNetworkRow(0);
+  drawTouchUiNetworkRow(1);
+  drawTouchUiNetworkRow(2);
+
+  drawTouchUiButton(
+    NETWORK_PAGE_PREVIOUS
+  );
+
+  drawTouchUiButton(
+    NETWORK_PAGE_NEXT
+  );
+
+  drawTouchUiButton(
+    NETWORK_OTHER_SSID
+  );
+
+  drawTouchUiButton(
+    NETWORK_PASSWORD
+  );
+
+  drawTouchUiButton(
+    NETWORK_SCAN
+  );
+
+  drawTouchUiButton(
+    NETWORK_FORGET
+  );
+
+  drawTouchUiButton(
+    NETWORK_CONNECT
+  );
+
+  drawTouchUiButton(
+    NETWORK_BACK
+  );
+}
+
+
+void openTouchKeyboard(
+  TouchKeyboardTarget target,
+  const String &initialValue
+) {
+  touchKeyboardTarget = target;
+  touchKeyboardOriginalValue = initialValue;
+  touchKeyboardValue = initialValue;
+  touchKeyboardMode =
+    target == TouchKeyboardTarget::Password
+      ? TouchKeyboardMode::Lower
+      : TouchKeyboardMode::Upper;
+  touchKeyboardSelectedCell = 0;
+  touchKeyboardPressedCell = -1;
+  touchKeyboardRevealPassword =
+    target != TouchKeyboardTarget::Password;
+
+  activeTouchUiPage =
+    TouchUiPage::Keyboard;
+
+  touchUiLastActivityAt =
+    millis();
+
+  drawActiveTouchUiPage();
+}
+
+
+void drawTouchKeyboardCell(
+  size_t index,
+  bool pressed
+) {
+  if (index >= TOUCH_KEYBOARD_CELL_COUNT) {
+    return;
+  }
+
+  static constexpr int GRID_TOP = 68;
+  static constexpr int CELL_W =
+    SCREEN_W / TOUCH_KEYBOARD_COLUMNS;
+  static constexpr int CELL_H = 30;
+
+  const int column =
+    index % TOUCH_KEYBOARD_COLUMNS;
+
+  const int row =
+    index / TOUCH_KEYBOARD_COLUMNS;
+
+  const int x =
+    column * CELL_W;
+
+  const int y =
+    GRID_TOP + row * CELL_H;
+
+  const bool selected =
+    index == touchKeyboardSelectedCell;
+
+  const uint16_t fillColor =
+    pressed
+      ? TFT_WHITE
+      : selected
+        ? TFT_YELLOW
+        : 0xBDF7;
+
+  const uint16_t textColor =
+    TFT_BLACK;
+
+  lcd.fillRoundRect(
+    x + 1,
+    y + 1,
+    CELL_W - 2,
+    CELL_H - 2,
+    4,
+    fillColor
+  );
+
+  lcd.drawRoundRect(
+    x + 1,
+    y + 1,
+    CELL_W - 2,
+    CELL_H - 2,
+    4,
+    selected
+      ? TFT_WHITE
+      : TFT_DARKGREY
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::middle_center
+  );
+
+  lcd.setTextColor(
+    textColor,
+    fillColor
+  );
+
+  lcd.drawString(
+    touchKeyboardCellLabel(index),
+    x + CELL_W / 2,
+    y + CELL_H / 2
+  );
+}
+
+
+void drawTouchUiKeyboard() {
+  drawTouchUiHeader(
+    touchUiPageTitle(
+      TouchUiPage::Keyboard
+    )
+  );
+
+  lcd.fillRoundRect(
+    8,
+    34,
+    304,
+    28,
+    5,
+    TFT_WHITE
+  );
+
+  lcd.drawRoundRect(
+    8,
+    34,
+    304,
+    28,
+    5,
+    TFT_CYAN
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::middle_left
+  );
+
+  lcd.setTextColor(
+    TFT_BLACK,
+    TFT_WHITE
+  );
+
+  lcd.drawString(
+    touchKeyboardDisplayValue(),
+    14,
+    48
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::middle_right
+  );
+
+  const size_t maximumLength =
+    touchKeyboardTarget ==
+      TouchKeyboardTarget::Ssid
+      ? TOUCH_NETWORK_SSID_MAX_LENGTH
+      : TOUCH_NETWORK_PASSWORD_MAX_LENGTH;
+
+  lcd.drawString(
+    String(touchKeyboardValue.length()) +
+      "/" +
+      String(maximumLength),
+    306,
+    48
+  );
+
+  for (
+    size_t i = 0;
+    i < TOUCH_KEYBOARD_CELL_COUNT;
+    ++i
+  ) {
+    drawTouchKeyboardCell(i);
+  }
+
+  drawTouchUiButton(
+    KEYBOARD_CANCEL
+  );
+
+  drawTouchUiButton(
+    KEYBOARD_PREVIOUS
+  );
+
+  drawTouchUiButton(
+    KEYBOARD_NEXT
+  );
+
+  drawTouchUiButton(
+    KEYBOARD_ACCEPT
+  );
+}
+
+
+void moveTouchKeyboardSelection(
+  int delta
+) {
+  int next =
+    static_cast<int>(
+      touchKeyboardSelectedCell
+    ) + delta;
+
+  while (next < 0) {
+    next += TOUCH_KEYBOARD_CELL_COUNT;
+  }
+
+  while (
+    next >=
+      static_cast<int>(
+        TOUCH_KEYBOARD_CELL_COUNT
+      )
+  ) {
+    next -= TOUCH_KEYBOARD_CELL_COUNT;
+  }
+
+  const size_t previous =
+    touchKeyboardSelectedCell;
+
+  touchKeyboardSelectedCell =
+    static_cast<size_t>(next);
+
+  drawTouchKeyboardCell(previous);
+  drawTouchKeyboardCell(
+    touchKeyboardSelectedCell
+  );
+}
+
+
+void completeTouchKeyboard() {
+  if (
+    touchKeyboardTarget ==
+      TouchKeyboardTarget::Ssid
+  ) {
+    String ssid =
+      touchKeyboardValue;
+
+    ssid.trim();
+
+    if (ssid.length() == 0) {
+      return;
+    }
+
+    const bool changed =
+      ssid != touchNetworkDraftSsid;
+
+    touchNetworkDraftSsid = ssid;
+    touchNetworkDraftIndex = -1;
+
+    for (
+      size_t i = 0;
+      i < touchNetworkCatalogCount;
+      ++i
+    ) {
+      if (touchNetworkCatalog[i].ssid == ssid) {
+        touchNetworkDraftIndex =
+          static_cast<int>(i);
+        touchNetworkListOffset =
+          (i / TOUCH_NETWORK_ROWS_PER_PAGE) *
+          TOUCH_NETWORK_ROWS_PER_PAGE;
+        break;
+      }
+    }
+
+    if (
+      changed &&
+      ssid != networkSettings.ssid
+    ) {
+      touchNetworkDraftPassword = "";
+    } else if (
+      ssid == networkSettings.ssid &&
+      touchNetworkDraftPassword.length() == 0
+    ) {
+      touchNetworkDraftPassword =
+        networkSettings.password;
+    }
+
+    touchNetworkMessage =
+      String("SSID: ") + ssid;
+  } else if (
+    touchKeyboardTarget ==
+      TouchKeyboardTarget::Password
+  ) {
+    touchNetworkDraftPassword =
+      touchKeyboardValue;
+
+    touchNetworkMessage =
+      touchNetworkDraftPassword.length() > 0
+        ? "Password updated"
+        : "Password cleared";
+  }
+
+  touchNetworkMessageError = false;
+  touchKeyboardTarget =
+    TouchKeyboardTarget::None;
+  activeTouchUiPage =
+    TouchUiPage::Network;
+  drawActiveTouchUiPage();
+}
+
+
+void cancelTouchKeyboard() {
+  touchKeyboardValue =
+    touchKeyboardOriginalValue;
+  touchKeyboardTarget =
+    TouchKeyboardTarget::None;
+  activeTouchUiPage =
+    TouchUiPage::Network;
+  drawActiveTouchUiPage();
+}
+
+
+void activateTouchKeyboardSelection() {
+  if (
+    touchKeyboardSelectedCell >=
+      TOUCH_KEYBOARD_CELL_COUNT
+  ) {
+    return;
+  }
+
+  const TouchKeyboardCell &cell =
+    activeTouchKeyboardCells()[
+      touchKeyboardSelectedCell
+    ];
+
+  const size_t maximumLength =
+    touchKeyboardTarget ==
+      TouchKeyboardTarget::Ssid
+      ? TOUCH_NETWORK_SSID_MAX_LENGTH
+      : TOUCH_NETWORK_PASSWORD_MAX_LENGTH;
+
+  switch (cell.kind) {
+    case TouchKeyboardCellKind::Character:
+      if (
+        touchKeyboardValue.length() <
+          maximumLength
+      ) {
+        touchKeyboardValue +=
+          cell.value;
+      }
+      break;
+
+    case TouchKeyboardCellKind::Space:
+      if (
+        touchKeyboardValue.length() <
+          maximumLength
+      ) {
+        touchKeyboardValue += ' ';
+      }
+      break;
+
+    case TouchKeyboardCellKind::Delete:
+      if (touchKeyboardValue.length() > 0) {
+        touchKeyboardValue.remove(
+          touchKeyboardValue.length() - 1
+        );
+      }
+      break;
+
+    case TouchKeyboardCellKind::Upper:
+      touchKeyboardMode =
+        TouchKeyboardMode::Upper;
+      break;
+
+    case TouchKeyboardCellKind::Lower:
+      touchKeyboardMode =
+        TouchKeyboardMode::Lower;
+      break;
+
+    case TouchKeyboardCellKind::Symbols:
+      touchKeyboardMode =
+        TouchKeyboardMode::Symbols;
+      break;
+
+    case TouchKeyboardCellKind::MoreSymbols:
+      touchKeyboardMode =
+        TouchKeyboardMode::Symbols2;
+      break;
+
+    case TouchKeyboardCellKind::ToggleMaskOrClear:
+      if (
+        touchKeyboardTarget ==
+          TouchKeyboardTarget::Password
+      ) {
+        touchKeyboardRevealPassword =
+          !touchKeyboardRevealPassword;
+      } else {
+        touchKeyboardValue = "";
+      }
+      break;
+
+    case TouchKeyboardCellKind::Enter:
+      completeTouchKeyboard();
+      return;
+  }
+
+  drawTouchUiKeyboard();
+}
+
+
+void connectTouchNetwork() {
+  if (touchNetworkDraftSsid.length() == 0) {
+    touchNetworkMessage =
+      "Select or enter an SSID first";
+    touchNetworkMessageError = true;
+    drawTouchUiNetwork();
+    return;
+  }
+
+  if (
+    touchNetworkDraftIndex >= 0 &&
+    !touchNetworkDraftIsOpen() &&
+    touchNetworkDraftPassword.length() == 0
+  ) {
+    touchNetworkMessage =
+      "Enter a password, or connect if the network is open";
+    touchNetworkMessageError = true;
+    drawTouchUiNetwork();
+    return;
+  }
+
+  drawTouchUiBusy(
+    "CONNECTING",
+    touchNetworkDraftSsid
+  );
+
+  String result;
+
+  const bool connected =
+    applyTouchNetworkSettings(
+      touchNetworkDraftSsid,
+      touchNetworkDraftPassword,
+      result
+    );
+
+  touchNetworkMessage = result;
+  touchNetworkMessageError =
+    !connected;
+  touchNetworkForgetArmed = false;
+
+  if (connected) {
+    touchNetworkDraftSsid =
+      networkSettings.ssid;
+    touchNetworkDraftPassword =
+      networkSettings.password;
+  }
+
+  activeTouchUiPage =
+    TouchUiPage::Network;
+
+  drawActiveTouchUiPage();
+}
+
+
+void forgetTouchNetwork() {
+  if (!networkSettings.configured) {
+    touchNetworkMessage =
+      "No saved Wi-Fi network";
+    touchNetworkMessageError = true;
+    touchNetworkForgetArmed = false;
+    drawTouchUiNetwork();
+    return;
+  }
+
+  if (!touchNetworkForgetArmed) {
+    touchNetworkForgetArmed = true;
+    touchNetworkMessage =
+      "Press CONFIRM to erase Wi-Fi and restart setup";
+    touchNetworkMessageError = true;
+    drawTouchUiNetwork();
+    return;
+  }
+
+  drawTouchUiBusy(
+    "FORGET WI-FI",
+    "Restarting in setup mode"
+  );
+
+  if (!clearSavedWifiCredentials()) {
+    touchNetworkMessage =
+      "Saved Wi-Fi could not be cleared";
+    touchNetworkMessageError = true;
+    touchNetworkForgetArmed = false;
+    activeTouchUiPage =
+      TouchUiPage::Network;
+    drawActiveTouchUiPage();
+    return;
+  }
+
+  WiFi.disconnect(
+    true,
+    true
+  );
+
+  delay(800);
+  ESP.restart();
+}
+
+
+// ------------------------------------------------------------
 // Diagnostics page
 // ------------------------------------------------------------
 
@@ -2727,8 +4195,23 @@ void prepareTouchUiDraft(
       );
       break;
 
+    case TouchUiPage::Network:
+      touchNetworkDraftSsid =
+        networkSettings.ssid;
+
+      touchNetworkDraftPassword =
+        networkSettings.password;
+
+      touchNetworkDraftIndex = -1;
+      touchNetworkListOffset = 0;
+      touchNetworkMessage = "";
+      touchNetworkMessageError = false;
+      touchNetworkForgetArmed = false;
+      break;
+
     case TouchUiPage::MapPreview:
     case TouchUiPage::MapMaintenance:
+    case TouchUiPage::Keyboard:
       break;
 
     default:
@@ -2783,9 +4266,11 @@ void drawActiveTouchUiPage() {
       break;
 
     case TouchUiPage::Network:
-      drawTouchUiPlaceholder(
-        activeTouchUiPage
-      );
+      drawTouchUiNetwork();
+      break;
+
+    case TouchUiPage::Keyboard:
+      drawTouchUiKeyboard();
       break;
 
     case TouchUiPage::Clock:
@@ -2960,6 +4445,8 @@ void handleTouchUiButton(
       showTouchUiPage(
         TouchUiPage::Network
       );
+
+      scanTouchNetworks();
       break;
 
     case TouchUiButtonId::Diagnostics:
@@ -3060,6 +4547,119 @@ void handleTouchUiButton(
 
     case TouchUiButtonId::MapRebuildAll:
       rebuildTouchUiAllCaches();
+      break;
+
+    case TouchUiButtonId::NetworkRow0:
+    case TouchUiButtonId::NetworkRow1:
+    case TouchUiButtonId::NetworkRow2: {
+      const int catalogIndex =
+        touchNetworkCatalogIndexForRowButton(id);
+
+      if (catalogIndex >= 0) {
+        const String previousSsid =
+          touchNetworkDraftSsid;
+
+        touchNetworkDraftIndex =
+          catalogIndex;
+
+        touchNetworkDraftSsid =
+          touchNetworkCatalog[
+            catalogIndex
+          ].ssid;
+
+        if (
+          touchNetworkDraftSsid ==
+            networkSettings.ssid
+        ) {
+          touchNetworkDraftPassword =
+            networkSettings.password;
+        } else if (
+          previousSsid !=
+            touchNetworkDraftSsid
+        ) {
+          touchNetworkDraftPassword = "";
+        }
+
+        touchNetworkMessage =
+          touchNetworkCatalog[
+            catalogIndex
+          ].open
+            ? "Open network selected"
+            : "Secured network selected";
+
+        touchNetworkMessageError = false;
+        touchNetworkForgetArmed = false;
+        drawTouchUiNetwork();
+      }
+      break;
+    }
+
+    case TouchUiButtonId::NetworkPagePrevious:
+      if (
+        touchNetworkListOffset >=
+          TOUCH_NETWORK_ROWS_PER_PAGE
+      ) {
+        touchNetworkListOffset -=
+          TOUCH_NETWORK_ROWS_PER_PAGE;
+        drawTouchUiNetwork();
+      }
+      break;
+
+    case TouchUiButtonId::NetworkPageNext:
+      if (
+        touchNetworkListOffset +
+          TOUCH_NETWORK_ROWS_PER_PAGE <
+          touchNetworkCatalogCount
+      ) {
+        touchNetworkListOffset +=
+          TOUCH_NETWORK_ROWS_PER_PAGE;
+        drawTouchUiNetwork();
+      }
+      break;
+
+    case TouchUiButtonId::NetworkOtherSsid:
+      openTouchKeyboard(
+        TouchKeyboardTarget::Ssid,
+        touchNetworkDraftSsid
+      );
+      break;
+
+    case TouchUiButtonId::NetworkPassword:
+      openTouchKeyboard(
+        TouchKeyboardTarget::Password,
+        touchNetworkDraftPassword
+      );
+      break;
+
+    case TouchUiButtonId::NetworkScan:
+      scanTouchNetworks();
+      break;
+
+    case TouchUiButtonId::NetworkForget:
+      forgetTouchNetwork();
+      break;
+
+    case TouchUiButtonId::NetworkConnect:
+      connectTouchNetwork();
+      break;
+
+    case TouchUiButtonId::KeyboardCancel:
+      cancelTouchKeyboard();
+      break;
+
+    case TouchUiButtonId::KeyboardPrevious:
+      moveTouchKeyboardSelection(-1);
+      break;
+
+    case TouchUiButtonId::KeyboardNext:
+      moveTouchKeyboardSelection(1);
+      break;
+
+    case TouchUiButtonId::KeyboardAccept:
+      activateTouchKeyboardSelection();
+      break;
+
+    case TouchUiButtonId::KeyboardCell:
       break;
 
     case TouchUiButtonId::TimeZonePrevious: {
@@ -3356,6 +4956,50 @@ void beginTouchUiPress(
       event.y
     );
 
+  if (
+    activeTouchUiPage ==
+      TouchUiPage::Keyboard &&
+    activeTouchUiButton ==
+      TouchUiButtonId::KeyboardCell
+  ) {
+    const int cellIndex =
+      touchKeyboardCellAt(
+        event.x,
+        event.y
+      );
+
+    if (cellIndex >= 0) {
+      const size_t previous =
+        touchKeyboardSelectedCell;
+
+      touchKeyboardSelectedCell =
+        static_cast<size_t>(
+          cellIndex
+        );
+
+      touchKeyboardPressedCell =
+        cellIndex;
+
+      drawTouchKeyboardCell(
+        previous
+      );
+
+      drawTouchKeyboardCell(
+        touchKeyboardSelectedCell,
+        true
+      );
+    }
+
+    // Directly touching a cell only moves the selection. The bottom check
+    // control deliberately activates the selected cell.
+    activeTouchUiButton =
+      TouchUiButtonId::None;
+
+    activeTouchUiButtonValid = false;
+    activeTouchUiOutsideFrames = 0;
+    return;
+  }
+
   activeTouchUiButtonValid =
     activeTouchUiButton !=
       TouchUiButtonId::None;
@@ -3444,6 +5088,20 @@ void moveTouchUiPress(
 }
 
 void finishTouchUiPress() {
+  if (
+    activeTouchUiPage ==
+      TouchUiPage::Keyboard &&
+    touchKeyboardPressedCell >= 0
+  ) {
+    drawTouchKeyboardCell(
+      static_cast<size_t>(
+        touchKeyboardPressedCell
+      )
+    );
+
+    touchKeyboardPressedCell = -1;
+  }
+
   const TouchUiButtonId action =
     activeTouchUiButtonValid
       ? activeTouchUiButton
@@ -3484,6 +5142,11 @@ void finishTouchUiPress() {
 
 
 void initializeTouchUi() {
+
+  if (touchUiInitialized) {
+    return;
+  }
+
   touchUiInitialized = true;
 
   initializeTouchHardware();

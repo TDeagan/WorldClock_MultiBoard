@@ -1,5 +1,8 @@
 #pragma once
 
+static constexpr const char *FIRMWARE_VERSION =
+  "5.0-alpha4.1";
+
 // ============================================================
 // BOARD SELECTION
 // ============================================================
@@ -137,6 +140,16 @@ static constexpr uint8_t TOUCH_BUTTON_CANCEL_OUTSIDE_FRAMES = 3;
 static constexpr uint16_t TOUCH_PRESSURE_STEP = 20;
 static constexpr uint16_t TOUCH_PRESSURE_MINIMUM_ALLOWED = 0;
 static constexpr uint16_t TOUCH_PRESSURE_MAXIMUM_ALLOWED = 1200;
+
+// Touchscreen Wi-Fi configuration and reusable on-screen keyboard.
+static constexpr size_t TOUCH_NETWORK_MAX_RESULTS = 20;
+static constexpr size_t TOUCH_NETWORK_ROWS_PER_PAGE = 3;
+static constexpr unsigned long TOUCH_NETWORK_CONNECT_TIMEOUT_MS = 20000UL;
+static constexpr size_t TOUCH_NETWORK_SSID_MAX_LENGTH = 32;
+static constexpr size_t TOUCH_NETWORK_PASSWORD_MAX_LENGTH = 64;
+static constexpr size_t TOUCH_KEYBOARD_CELL_COUNT = 32;
+static constexpr size_t TOUCH_KEYBOARD_COLUMNS = 8;
+static constexpr size_t TOUCH_KEYBOARD_ROWS = 4;
 
 // ============================================================
 // SD-CARD FILENAMES
@@ -298,8 +311,6 @@ static constexpr unsigned long NTP_RETRY_MS =
 static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
-static constexpr const char *FIRMWARE_VERSION =
-  "5.0-alpha3";
 
 // ============================================================
 // STARTUP SPLASH
@@ -783,6 +794,12 @@ bool applyLocationSettings(
 bool applyOverlaySettings(
   const OverlaySettings &requestedOverlays
 );
+bool applyTouchNetworkSettings(
+  const String &requestedSsid,
+  const String &requestedPassword,
+  String &messageOut
+);
+bool clearSavedWifiCredentials();
 
 void clearNetworkSettings();
 void serviceConfigurationButton();

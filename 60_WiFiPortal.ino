@@ -993,9 +993,13 @@ void runConfigurationPortal() {
   const IPAddress portalIp =
     WiFi.softAPIP();
 
+  const String portalUrl =
+    String("http://") +
+    portalIp.toString();
+
   showStatus(
     portalApSsid,
-    portalIp.toString()
+    portalUrl
   );
 
   portalNetworkOptions = buildNetworkOptions();
@@ -1003,7 +1007,7 @@ void runConfigurationPortal() {
   // Return the screen to the AP name after scanning.
   showStatus(
     portalApSsid,
-    portalIp.toString()
+    portalUrl
   );
 
   portalDns.start(
@@ -1061,7 +1065,46 @@ void runConfigurationPortal() {
 
   portalServer.begin();
 
+  initializeTouchUi();
+
+  bool portalTouchWasOpen =
+    touchUiIsOpen();
+
   while (true) {
+  serviceTouchUi();
+
+  const bool portalTouchIsOpen =
+    touchUiIsOpen();
+
+  if (
+    portalTouchWasOpen &&
+    !portalTouchIsOpen &&
+    !portalSaveComplete
+  ) {
+    showStatus(
+      portalApSsid,
+      portalUrl
+    );
+  }
+
+  portalTouchWasOpen =
+    portalTouchIsOpen;
+
+  if (
+    !portalSaveComplete &&
+    networkSettings.configured &&
+    WiFi.status() == WL_CONNECTED
+  ) {
+    showStatus(
+      "Wi-Fi saved",
+      "Restarting..."
+    );
+
+    portalSaveComplete = true;
+    portalRestartAt =
+      millis() + PORTAL_RESTART_DELAY_MS;
+  }
+
     portalDns.processNextRequest();
     portalServer.handleClient();
 
