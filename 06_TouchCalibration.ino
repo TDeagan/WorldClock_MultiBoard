@@ -6,7 +6,9 @@
 // saved calibration exists. Four corner targets establish axis selection,
 // direction, and range; a center target verifies the generated mapping before
 // the existing TouchCalibration record is written to the "touchtest"
-// Preferences namespace.
+// Preferences namespace. Holding BOOT for three seconds cancels calibration;
+// when no prior calibration exists, that choice leaves touch disabled until
+// calibration is launched again from browser Diagnostics.
 // ============================================================
 
 namespace {
@@ -17,6 +19,10 @@ static constexpr int TOUCH_CALIBRATION_TARGET_MARGIN = 24;
 static constexpr int TOUCH_CALIBRATION_TARGET_RADIUS = 10;
 static constexpr int TOUCH_CALIBRATION_CENTER_TOLERANCE = 32;
 static constexpr int TOUCH_CALIBRATION_MINIMUM_RAW_SPAN = 500;
+
+bool calibrationBypassTriggered = false;
+bool calibrationHadSavedCalibration = false;
+unsigned long calibrationBypassPressedAt = 0;
 
 struct TouchCalibrationPoint {
   int screenX = 0;
@@ -33,7 +39,12 @@ void drawCalibrationText(
   uint16_t color
 );
 void drawCalibrationTarget(int x, int y, uint16_t color);
-void waitForRawTouchRelease();
+void drawCalibrationBypassHint();
+void resetCalibrationBypassMonitor(bool hadSavedCalibration);
+bool calibrationBypassRequested();
+bool calibrationDelayWithBypass(unsigned long durationMs);
+bool waitForRawTouchRelease();
+bool finishCalibrationBypass();
 bool captureCalibrationPoint(
   TouchCalibrationPoint &point,
   uint8_t pointNumber,
@@ -181,10 +192,167 @@ void drawCalibrationTarget(
   );
 }
 
-void waitForRawTouchRelease() {
+void drawCalibrationBypassHint() {
+  lcd.fillRect(
+    28,
+    166,
+    lcd.width() - 56,
+    20,
+    TFT_BLACK
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::middle_center
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextColor(
+    TFT_YELLOW,
+    TFT_BLACK
+  );
+
+  lcd.drawString(
+    calibrationHadSavedCalibration
+      ? "Hold BOOT 3 sec to cancel"
+      : "Hold BOOT 3 sec to disable touch",
+    lcd.width() / 2,
+    176
+  );
+}
+
+void resetCalibrationBypassMonitor(
+  bool hadSavedCalibration
+) {
+  calibrationBypassTriggered = false;
+  calibrationHadSavedCalibration =
+    hadSavedCalibration;
+  calibrationBypassPressedAt = 0;
+
+  if (CONFIG_BUTTON_PIN >= 0) {
+    pinMode(
+      CONFIG_BUTTON_PIN,
+      INPUT_PULLUP
+    );
+  }
+}
+
+bool calibrationBypassRequested() {
+  if (
+    calibrationBypassTriggered ||
+    CONFIG_BUTTON_PIN < 0
+  ) {
+    return calibrationBypassTriggered;
+  }
+
+  if (
+    digitalRead(CONFIG_BUTTON_PIN) == LOW
+  ) {
+    if (calibrationBypassPressedAt == 0) {
+      calibrationBypassPressedAt = millis();
+
+      if (calibrationBypassPressedAt == 0) {
+        calibrationBypassPressedAt = 1;
+      }
+    }
+
+    if (
+      millis() - calibrationBypassPressedAt >=
+        CONFIG_BUTTON_HOLD_MS
+    ) {
+      calibrationBypassTriggered = true;
+    }
+  } else {
+    calibrationBypassPressedAt = 0;
+  }
+
+  return calibrationBypassTriggered;
+}
+
+bool calibrationDelayWithBypass(
+  unsigned long durationMs
+) {
+  const unsigned long startedAt =
+    millis();
+
+  while (
+    millis() - startedAt < durationMs
+  ) {
+    if (calibrationBypassRequested()) {
+      return false;
+    }
+
+    delay(10);
+  }
+
+  return true;
+}
+
+bool finishCalibrationBypass() {
+  const bool persisted =
+    calibrationHadSavedCalibration
+      ? true
+      : setTouchCalibrationBypassed(true);
+
+  lcd.fillScreen(
+    TFT_BLACK
+  );
+
+  drawCalibrationText(
+    calibrationHadSavedCalibration
+      ? "Recalibration cancelled"
+      : "Touch disabled",
+    "Release BOOT to continue",
+    calibrationHadSavedCalibration
+      ? TFT_YELLOW
+      : TFT_RED
+  );
+
+  while (
+    CONFIG_BUTTON_PIN >= 0 &&
+    digitalRead(CONFIG_BUTTON_PIN) == LOW
+  ) {
+    delay(10);
+  }
+
+  delay(80);
+
+  drawCalibrationText(
+    calibrationHadSavedCalibration
+      ? "Previous calibration kept"
+      : "Touch remains disabled",
+    calibrationHadSavedCalibration
+      ? "Returning without changes"
+      : persisted
+          ? "Use browser Diagnostics to retry"
+          : "Disabled for this boot only",
+    calibrationHadSavedCalibration || persisted
+      ? TFT_YELLOW
+      : TFT_RED
+  );
+
+  Serial.println(
+    calibrationHadSavedCalibration
+      ? "Touch recalibration cancelled; previous calibration retained."
+      : persisted
+          ? "Touch calibration bypassed; touch disabled until browser Diagnostics recalibration."
+          : "Touch calibration bypassed for this boot; bypass preference could not be saved."
+  );
+
+  delay(1200);
+  return false;
+}
+
+bool waitForRawTouchRelease() {
   uint8_t releasedFrames = 0;
 
   while (releasedFrames < 3) {
+    if (calibrationBypassRequested()) {
+      return false;
+    }
+
     Xpt2046Sample sample;
 
     if (readRawTouchSample(sample)) {
@@ -195,6 +363,8 @@ void waitForRawTouchRelease() {
 
     delay(10);
   }
+
+  return true;
 }
 
 bool captureCalibrationPoint(
@@ -202,7 +372,9 @@ bool captureCalibrationPoint(
   uint8_t pointNumber,
   const char *label
 ) {
-  waitForRawTouchRelease();
+  if (!waitForRawTouchRelease()) {
+    return false;
+  }
 
   lcd.fillScreen(
     TFT_BLACK
@@ -215,6 +387,8 @@ bool captureCalibrationPoint(
       " of 4",
     TFT_WHITE
   );
+
+  drawCalibrationBypassHint();
 
   drawCalibrationTarget(
     point.screenX,
@@ -231,6 +405,10 @@ bool captureCalibrationPoint(
     collected <
       TOUCH_CALIBRATION_RAW_SAMPLES
   ) {
+    if (calibrationBypassRequested()) {
+      return false;
+    }
+
     Xpt2046Sample sample;
 
     if (
@@ -248,6 +426,7 @@ bool captureCalibrationPoint(
         "Hold steadily until accepted",
         TFT_WHITE
       );
+      drawCalibrationBypassHint();
     }
 
     delay(8);
@@ -268,7 +447,9 @@ bool captureCalibrationPoint(
     TOUCH_CALIBRATION_RAW_SAMPLES
   );
 
-  waitForRawTouchRelease();
+  if (!waitForRawTouchRelease()) {
+    return false;
+  }
 
   drawCalibrationTarget(
     point.screenX,
@@ -276,8 +457,7 @@ bool captureCalibrationPoint(
     TFT_GREEN
   );
 
-  delay(250);
-  return true;
+  return calibrationDelayWithBypass(250);
 }
 
 int32_t averageRawValue(
@@ -493,7 +673,9 @@ void mapRawWithCalibration(
 bool verifyTouchCalibration(
   const TouchCalibration &calibration
 ) {
-  waitForRawTouchRelease();
+  if (!waitForRawTouchRelease()) {
+    return false;
+  }
 
   const int centerX =
     lcd.width() / 2;
@@ -511,6 +693,8 @@ bool verifyTouchCalibration(
     TFT_WHITE
   );
 
+  drawCalibrationBypassHint();
+
   drawCalibrationTarget(
     centerX,
     centerY,
@@ -527,6 +711,10 @@ bool verifyTouchCalibration(
     collected <
       TOUCH_CALIBRATION_RAW_SAMPLES
   ) {
+    if (calibrationBypassRequested()) {
+      return false;
+    }
+
     Xpt2046Sample current;
 
     if (
@@ -562,7 +750,9 @@ bool verifyTouchCalibration(
   sample.contact = true;
   sample.pressed = true;
 
-  waitForRawTouchRelease();
+  if (!waitForRawTouchRelease()) {
+    return false;
+  }
 
   int mappedX = -1;
   int mappedY = -1;
@@ -639,6 +829,13 @@ bool runIntegratedTouchCalibration(
     return false;
   }
 
+  const bool hadSavedCalibration =
+    touchCalibrationIsReady();
+
+  resetCalibrationBypassMonitor(
+    hadSavedCalibration
+  );
+
   for (;;) {
     lcd.fillScreen(
       TFT_BLACK
@@ -652,7 +849,11 @@ bool runIntegratedTouchCalibration(
       TFT_WHITE
     );
 
-    delay(900);
+    drawCalibrationBypassHint();
+
+    if (!calibrationDelayWithBypass(900)) {
+      return finishCalibrationBypass();
+    }
 
     const int left =
       TOUCH_CALIBRATION_TARGET_MARGIN;
@@ -681,29 +882,30 @@ bool runIntegratedTouchCalibration(
     points[3].screenX = left;
     points[3].screenY = bottom;
 
-    captureCalibrationPoint(
-      points[0],
-      1,
-      "top-left"
-    );
-
-    captureCalibrationPoint(
-      points[1],
-      2,
-      "top-right"
-    );
-
-    captureCalibrationPoint(
-      points[2],
-      3,
-      "bottom-right"
-    );
-
-    captureCalibrationPoint(
-      points[3],
-      4,
-      "bottom-left"
-    );
+    if (
+      !captureCalibrationPoint(
+        points[0],
+        1,
+        "top-left"
+      ) ||
+      !captureCalibrationPoint(
+        points[1],
+        2,
+        "top-right"
+      ) ||
+      !captureCalibrationPoint(
+        points[2],
+        3,
+        "bottom-right"
+      ) ||
+      !captureCalibrationPoint(
+        points[3],
+        4,
+        "bottom-left"
+      )
+    ) {
+      return finishCalibrationBypass();
+    }
 
     TouchCalibration calibration;
 
@@ -719,11 +921,20 @@ bool runIntegratedTouchCalibration(
         "Touch the targets again",
         TFT_RED
       );
-      delay(1400);
+      drawCalibrationBypassHint();
+
+      if (!calibrationDelayWithBypass(1400)) {
+        return finishCalibrationBypass();
+      }
+
       continue;
     }
 
     if (!verifyTouchCalibration(calibration)) {
+      if (calibrationBypassTriggered) {
+        return finishCalibrationBypass();
+      }
+
       continue;
     }
 
@@ -738,7 +949,12 @@ bool runIntegratedTouchCalibration(
         "Calibration will retry",
         TFT_RED
       );
-      delay(1400);
+      drawCalibrationBypassHint();
+
+      if (!calibrationDelayWithBypass(1400)) {
+        return finishCalibrationBypass();
+      }
+
       continue;
     }
 

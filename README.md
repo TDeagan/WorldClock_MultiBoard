@@ -1,4 +1,4 @@
-# ESP32 World Clock v5.0-alpha4
+# ESP32 World Clock v5.0-rc1
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 ILI9341 screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, and a latitude/longitude grid.
 
@@ -19,28 +19,33 @@ The address is available only while the clock is connected to Wi-Fi. Open it fro
 
 ### First-time setup
 
-When the clock has no saved Wi-Fi configuration, it starts its own temporary setup network.
+When a touch-enabled board has no saved calibration, touch calibration runs before Wi-Fi setup. Touch the four corner targets in order, then touch the center target for verification. A successful calibration is stored in the existing `touchtest` Preferences namespace and is reused on later boots.
+
+If the touch controller is disconnected or unusable, hold the physical **BOOT** button for three seconds during calibration. The clock stores a touch-disabled state, waits for the button to be released, and then continues automatically into Wi-Fi setup. Wi-Fi and all other World Clock settings are preserved. Touch remains disabled on later boots until calibration is started from the browser **Diagnostics** page.
+
+When the clock has no saved Wi-Fi configuration, it starts its own temporary setup network after touch setup completes or is bypassed.
 
 1. Power on the clock with the microSD card installed.
-2. On a phone, tablet, or computer, open the Wi-Fi settings.
-3. Connect to the open network named `WorldClock-XXXX`, where `XXXX` is unique to the clock.
-4. The World Clock Setup page should open automatically. If it does not, open a browser and enter the address shown on the clock display. This is normally `http://192.168.4.1`.
-5. Select a detected Wi-Fi network, or type the name of a hidden network manually.
-6. Enter the Wi-Fi password. Leave it blank only for an open network.
-7. Select a time zone:
+2. Complete the four-corner and center touch calibration, or hold **BOOT** for three seconds to disable touch and continue.
+3. On a phone, tablet, or computer, open the Wi-Fi settings.
+4. Connect to the open network named `WorldClock-XXXX`, where `XXXX` is unique to the clock.
+5. The World Clock Setup page should open automatically. If it does not, open a browser and enter the address shown on the clock display. This is normally `http://192.168.4.1`.
+6. Select a detected Wi-Fi network, or type the name of a hidden network manually.
+7. Enter the Wi-Fi password. Leave it blank only for an open network.
+8. Select a time zone:
    - Fixed UTC offset
    - UTC
    - US Eastern
    - US Central
    - US Mountain
    - US Pacific
-8. When using **Fixed UTC offset**, select `+` or `−` and enter the offset magnitude in hours. Quarter-hour offsets are supported.
-9. Choose 12-hour or 24-hour time and whether seconds are shown.
-10. Enter the home location in decimal degrees:
+9. When using **Fixed UTC offset**, select `+` or `−` and enter the offset magnitude in hours. Quarter-hour offsets are supported.
+10. Choose 12-hour or 24-hour time and whether seconds are shown.
+11. Enter the home location in decimal degrees:
     - Choose North or South and enter a latitude magnitude from 0 through 90.
     - Choose East or West and enter a longitude magnitude from 0 through 180.
-11. Enable any desired map overlays.
-12. Select **Save and connect**.
+12. Enable any desired map overlays.
+13. Select **Save and connect**.
 
 The clock saves the settings, restarts, connects to the selected Wi-Fi network, synchronizes its time, prepares the map cache if needed, and then displays the world clock.
 
@@ -61,6 +66,7 @@ Tap the bottom status bar on the clock display to open the touchscreen menu. The
 - A Zoom R4-style on-screen keyboard with a selected character cell and four bottom controls: Cancel, left, right, and check
 - Saved-network removal with confirmation and automatic restart into setup mode
 - Touch, Wi-Fi, SD-card, NTP, and selected-map diagnostics
+- Touch recalibration from Diagnostics without erasing Wi-Fi or other settings
 
 Settings changed on the touchscreen use the same saved Preferences values as the browser controls. The menu returns to the clock automatically after one minute without activity.
 
@@ -184,6 +190,9 @@ The Diagnostics page reports information useful for troubleshooting, including:
 - Day and night PNG/cache status
 - ISS data and orbit-track status
 - Last system error and error detail
+- Touch hardware, calibration, rotation, state, and pressure-threshold status
+
+The browser Diagnostics page includes **Recalibrate Touch**. Selecting it starts four-corner calibration on the World Clock display. Calibration changes only the touch record in the `touchtest` namespace; it does not erase Wi-Fi, maps, location, overlays, clock settings, or other World Clock preferences. Hold **BOOT** for three seconds to cancel. When an earlier calibration exists, cancelling retains it. When no calibration exists, cancelling leaves touch disabled.
 
 Use the browser's **Refresh** link to update the values.
 
@@ -294,6 +303,8 @@ WorldClock_MultiBoard/
 ├── WorldClock_MultiBoard.ino
 ├── 01_Hardware.ino
 ├── 02_SplashScreen.ino
+├── 05_TouchHardware.ino
+├── 06_TouchCalibration.ino
 ├── 10_Utilities.ino
 ├── 20_Storage_PNG.ino
 ├── 30_Map.ino
@@ -301,11 +312,16 @@ WorldClock_MultiBoard/
 ├── 40_SunMoon.ino
 ├── 45_LocationGrid.ino
 ├── 50_ClockNetwork.ino
+├── 55_SettingsController.ino
+├── 56_NetworkController.cpp
 ├── 60_WiFiPortal.ino
 ├── 62_RuntimeWebConfig.ino
 ├── 65_ISS.ino
 ├── 66_OrbitTrack.ino
+├── 70_TouchUI.ino
 ├── 90_Application.ino
+├── XPT2046Soft.cpp
+├── XPT2046Soft.h
 ├── board_profiles.h
 ├── config.h
 └── logo.h
@@ -337,7 +353,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "4.7.1";
+  "5.0-rc1";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -435,7 +451,7 @@ See `Map requirements.txt` for the complete checklist.
 11. Open Serial Monitor at 115200 baud to observe startup, Wi-Fi, NTP, SD, map-cache, and web-server messages.
 12. Reset or power-cycle the board after the upload if it does not restart automatically.
 
-On first boot, the clock should display its splash screen and then start the `WorldClock-XXXX` setup network.
+On first boot, the clock should display its splash screen, run integrated touch calibration when needed, and then start the `WorldClock-XXXX` setup network. Holding **BOOT** for three seconds during calibration disables touch and still allows Wi-Fi setup to continue.
 
 ### Board-profile notes
 
@@ -447,6 +463,7 @@ The included profile uses:
 - Rotation 3
 - Normal RGB order
 - Nominal 8 MB flash
+- XPT2046 touch and integrated calibration verified on physical hardware
 
 #### E32R28T profile
 
@@ -456,6 +473,7 @@ The included profile preserves the settings proven on this board:
 - Rotation 4
 - Alternate RGB order
 - Nominal 4 MB flash
+- XPT2046 touch and integrated calibration verified on physical hardware
 
 These unusual values are intentional.
 
@@ -467,6 +485,8 @@ The included profile starts with:
 - Rotation 1
 - Normal RGB order
 - Nominal 4 MB flash
+
+Touch remains intentionally disabled for this profile until the controller wiring and calibration are verified on physical hardware.
 
 Production revisions can differ. If the display is correctly landscape but upside down, change the profile rotation in `board_profiles.h` from `1` to `3`. If only red and blue are exchanged, change that profile's `rgbOrder` value.
 

@@ -19,6 +19,7 @@ TouchDiagnostics touchDiagnostics;
 
 bool touchHardwareInitialized = false;
 bool touchCalibrationReadyFlag = false;
+bool touchCalibrationBypassedFlag = false;
 bool transformCalibrationBy180 = false;
 
 uint8_t stableAcceptedTouchFrames = 0;
@@ -33,10 +34,13 @@ Xpt2046Sample touchLastAcceptedSample;
 uint8_t touchOppositeRotation(uint8_t rotation);
 String touchCalibrationKey(uint8_t rotation);
 String touchPressureKey();
+String touchCalibrationBypassKey();
 bool readTouchCalibration(uint8_t rotation, TouchCalibration &calibrationOut);
 bool writeTouchCalibration(const TouchCalibration &calibration);
 uint16_t loadTouchPressureMinimum();
 void saveTouchPressureMinimum(uint16_t value);
+bool loadTouchCalibrationBypass();
+bool writeTouchCalibrationBypass(bool bypassed);
 int mapTouchRawAxis(int raw, int rawStart, int rawEnd, int screenMaximum);
 bool mapTouchSampleToScreen(const Xpt2046Sample &sample, int &x, int &y);
 void resetTouchGestureState();
@@ -72,6 +76,20 @@ String touchPressureKey() {
     key,
     sizeof(key),
     "pmin_b%u",
+    static_cast<unsigned>(WORLDCLOCK_BOARD)
+  );
+
+  return String(key);
+}
+
+
+String touchCalibrationBypassKey() {
+  char key[16];
+
+  snprintf(
+    key,
+    sizeof(key),
+    "skip_b%u",
     static_cast<unsigned>(WORLDCLOCK_BOARD)
   );
 
@@ -231,6 +249,53 @@ void saveTouchPressureMinimum(
   preferences.end();
 }
 
+
+bool loadTouchCalibrationBypass() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      TOUCH_TEST_PREF_NAMESPACE,
+      true
+    )
+  ) {
+    return false;
+  }
+
+  const bool bypassed =
+    preferences.getBool(
+      touchCalibrationBypassKey().c_str(),
+      false
+    );
+
+  preferences.end();
+  return bypassed;
+}
+
+bool writeTouchCalibrationBypass(
+  bool bypassed
+) {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      TOUCH_TEST_PREF_NAMESPACE,
+      false
+    )
+  ) {
+    return false;
+  }
+
+  const size_t storedBytes =
+    preferences.putBool(
+      touchCalibrationBypassKey().c_str(),
+      bypassed
+    );
+
+  preferences.end();
+  return storedBytes == sizeof(bool);
+}
+
 int mapTouchRawAxis(
   int raw,
   int rawStart,
@@ -365,6 +430,8 @@ bool initializeTouchHardware() {
   );
 
   touchHardwareInitialized = true;
+  touchCalibrationBypassedFlag =
+    loadTouchCalibrationBypass();
   touchDiagnostics.initialized = true;
   touchDiagnostics.pressureMinimum =
     pressureMinimum;
@@ -386,7 +453,9 @@ bool initializeTouchHardware() {
 
   if (!touchCalibrationReadyFlag) {
     Serial.println(
-      "Touch calibration not found. Integrated calibration required."
+      touchCalibrationBypassedFlag
+        ? "Touch calibration bypassed; touch remains disabled until recalibrated."
+        : "Touch calibration not found. Integrated calibration required."
     );
   }
 
@@ -448,10 +517,21 @@ void reloadTouchCalibrationForDisplayRotation() {
       ? activeTouchCalibration.rotation
       : 0;
 
+  if (
+    touchCalibrationReadyFlag &&
+    touchCalibrationBypassedFlag
+  ) {
+    if (writeTouchCalibrationBypass(false)) {
+      touchCalibrationBypassedFlag = false;
+    }
+  }
+
   touchDiagnostics.state =
     touchCalibrationReadyFlag
       ? "UP"
-      : "NO CAL";
+      : touchCalibrationBypassedFlag
+          ? "DISABLED"
+          : "NO CAL";
 
   resetTouchGestureState();
 
@@ -466,11 +546,14 @@ void reloadTouchCalibrationForDisplayRotation() {
     );
   } else {
     Serial.printf(
-      "Touch calibration unavailable for rotations %u and %u\n",
+      "Touch calibration unavailable for rotations %u and %u%s\n",
       currentRotation,
       touchOppositeRotation(
         currentRotation
-      )
+      ),
+      touchCalibrationBypassedFlag
+        ? "; touch disabled by user"
+        : ""
     );
   }
 }
@@ -732,7 +815,9 @@ bool readRawTouchSample(
     touchDiagnostics.state =
       touchCalibrationReadyFlag
         ? "UP"
-        : "NO CAL";
+        : touchCalibrationBypassedFlag
+            ? "DISABLED"
+            : "NO CAL";
   }
 
   return contact;
@@ -762,6 +847,10 @@ bool saveTouchCalibrationForDisplayRotation(
     return false;
   }
 
+  if (writeTouchCalibrationBypass(false)) {
+    touchCalibrationBypassedFlag = false;
+  }
+
   reloadTouchCalibrationForDisplayRotation();
 
   return
@@ -781,6 +870,35 @@ bool touchHardwareIsReady() {
 bool touchCalibrationIsReady() {
   return
     touchCalibrationReadyFlag;
+}
+
+
+bool touchCalibrationWasBypassed() {
+  return touchCalibrationBypassedFlag;
+}
+
+
+bool setTouchCalibrationBypassed(
+  bool bypassed
+) {
+  if (!touchHardwareInitialized) {
+    return false;
+  }
+
+  if (!writeTouchCalibrationBypass(bypassed)) {
+    return false;
+  }
+
+  touchCalibrationBypassedFlag = bypassed;
+
+  if (!touchCalibrationReadyFlag) {
+    touchDiagnostics.state =
+      bypassed
+        ? "DISABLED"
+        : "NO CAL";
+  }
+
+  return true;
 }
 
 

@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.0-alpha5";
+  "5.0-rc1";
 
 // ============================================================
 // BOARD SELECTION
@@ -189,6 +189,8 @@ static constexpr unsigned long PORTAL_RESTART_DELAY_MS = 1800UL;
 static constexpr uint16_t RUNTIME_CONFIG_PORT = 80;
 static constexpr const char *RUNTIME_CONFIG_PATH = "/";
 static constexpr const char *DIAGNOSTICS_PATH = "/diagnostics";
+static constexpr const char *TOUCH_RECALIBRATE_PATH =
+  "/diagnostics/recalibrate-touch";
 static constexpr const char *MAP_MAINTENANCE_PATH = "/maps";
 static constexpr const char *MAP_VALIDATE_PATH = "/maps/validate";
 static constexpr const char *MAP_REBUILD_DAY_PATH = "/maps/rebuild-day";
@@ -822,6 +824,8 @@ bool saveTouchCalibrationForDisplayRotation(
 );
 bool touchHardwareIsReady();
 bool touchCalibrationIsReady();
+bool touchCalibrationWasBypassed();
+bool setTouchCalibrationBypassed(bool bypassed);
 const TouchDiagnostics &getTouchDiagnostics();
 uint16_t getTouchPressureMinimum();
 void adjustTouchPressureMinimum(int delta);

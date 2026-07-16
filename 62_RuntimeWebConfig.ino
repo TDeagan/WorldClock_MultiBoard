@@ -16,6 +16,11 @@ bool runtimePendingOrientationChanged = false;
 bool runtimePendingLocationGridChanged = false;
 unsigned long runtimeActionAt = 0;
 
+bool runtimeTouchCalibrationPending = false;
+unsigned long runtimeTouchCalibrationAt = 0;
+String runtimeTouchCalibrationResultMessage;
+bool runtimeTouchCalibrationResultError = false;
+
 enum class RuntimeMapAction {
   None,
   ApplyDayMap,
@@ -915,9 +920,65 @@ void handleForgetWifi() {
 }
 
 void handleDiagnostics() {
+  const String page =
+    buildDiagnosticsPage();
+
+  runtimeTouchCalibrationResultMessage = "";
+  runtimeTouchCalibrationResultError = false;
+
   sendRuntimeHtml(
     200,
-    buildDiagnosticsPage()
+    page
+  );
+}
+
+void handleTouchRecalibrate() {
+  Serial.printf(
+    "Runtime web: %s %s\n",
+    runtimeMethodName(),
+    runtimeServer.uri().c_str()
+  );
+
+  if (
+    !ACTIVE_BOARD.touchAvailable ||
+    !touchHardwareIsReady()
+  ) {
+    sendRuntimeHtml(
+      409,
+      pageHeader("Touch Calibration") +
+        F("<div class=\"msg err\">Touch hardware is not available "
+          "for this board profile.</div>"
+          "<p><a href=\"/diagnostics\">Return to Diagnostics</a></p>") +
+        pageFooter()
+    );
+    return;
+  }
+
+  if (runtimeTouchCalibrationPending) {
+    sendRuntimeHtml(
+      409,
+      pageHeader("Touch Calibration") +
+        F("<div class=\"msg err\">Touch calibration is already scheduled.</div>"
+          "<p><a href=\"/diagnostics\">Return to Diagnostics</a></p>") +
+        pageFooter()
+    );
+    return;
+  }
+
+  runtimeTouchCalibrationPending = true;
+  runtimeTouchCalibrationAt = millis() + 300UL;
+
+  sendRuntimeHtml(
+    202,
+    pageHeader("Touch Calibration") +
+      F("<div class=\"msg\">Calibration is starting on the World Clock display.</div>"
+        "<p>Touch the four corner targets and then the center target. "
+        "Hold the physical BOOT button for three seconds to cancel.</p>"
+        "<p>No Wi-Fi, map, location, overlay, clock, or other World Clock "
+        "settings are erased by this operation.</p>"
+        "<p>After completing or cancelling calibration, return to "
+        "<a href=\"/diagnostics\">Diagnostics</a>.</p>") +
+      pageFooter()
   );
 }
 
@@ -1169,6 +1230,22 @@ String buildDiagnosticsPage() {
   String page =
     pageHeader("Diagnostics");
 
+  if (
+    runtimeTouchCalibrationResultMessage.length() > 0
+  ) {
+    page += F("<div class=\"msg");
+
+    if (runtimeTouchCalibrationResultError) {
+      page += F(" err");
+    }
+
+    page += F("\">");
+    page += htmlEscapeRuntime(
+      runtimeTouchCalibrationResultMessage
+    );
+    page += F("</div>");
+  }
+
   page += F("<table>");
 
   auto row =
@@ -1185,6 +1262,31 @@ String buildDiagnosticsPage() {
   row("Native LCD rotation", String(DISPLAY_ROTATION));
   row("Configured orientation", displayOrientationName());
   row("Effective LCD rotation", String(effectiveDisplayRotation()));
+
+  const TouchDiagnostics &touch =
+    getTouchDiagnostics();
+
+  row(
+    "Touch hardware",
+    !touch.hardwareAvailable
+      ? "Disabled for board profile"
+      : touch.initialized
+          ? "Initialized"
+          : "Unavailable"
+  );
+
+  row(
+    "Touch calibration",
+    touchCalibrationIsReady()
+      ? "Ready"
+      : touchCalibrationWasBypassed()
+          ? "Disabled until recalibrated"
+          : "Missing"
+  );
+
+  row("Touch state", touch.state);
+  row("Touch display rotation", String(touch.activeRotation));
+  row("Touch pressure threshold", String(touch.pressureMinimum));
   row(
     "Home marker",
     locationGridSettings.showHomeMarker
@@ -1236,6 +1338,22 @@ String buildDiagnosticsPage() {
   row("Error detail", systemStatus.lastErrorText.length() ? systemStatus.lastErrorText : "None");
 
   page += F("</table><p><a href=\"/diagnostics\">Refresh</a></p>");
+
+  if (
+    ACTIVE_BOARD.touchAvailable &&
+    touchHardwareIsReady()
+  ) {
+    page += F(
+      "<h2>Touch calibration</h2>"
+      "<p class=\"note\">Calibration changes only the touch record in the "
+      "touchtest Preferences namespace. Wi-Fi and all other World Clock "
+      "settings are preserved.</p>"
+      "<a class=\"button\" href=\""
+    );
+    page += TOUCH_RECALIBRATE_PATH;
+    page += F("\">Recalibrate Touch</a>");
+  }
+
   page += pageFooter();
   return page;
 }
@@ -1475,6 +1593,11 @@ void startRuntimeConfigServer() {
     handleForgetWifi
   );
   runtimeServer.on(DIAGNOSTICS_PATH, HTTP_GET, handleDiagnostics);
+  runtimeServer.on(
+    TOUCH_RECALIBRATE_PATH,
+    HTTP_GET,
+    handleTouchRecalibrate
+  );
   runtimeServer.on(MAP_MAINTENANCE_PATH, HTTP_GET, handleMaps);
   runtimeServer.on(
     MAP_VALIDATE_PATH,
@@ -1627,6 +1750,68 @@ void serviceRuntimeConfigServer() {
 
     Serial.println(
       "Runtime web: settings applied"
+    );
+  }
+
+
+  if (
+    runtimeTouchCalibrationPending &&
+    static_cast<long>(
+      now - runtimeTouchCalibrationAt
+    ) >= 0
+  ) {
+    runtimeTouchCalibrationPending = false;
+
+    const bool hadCalibration =
+      touchCalibrationIsReady();
+
+    Serial.println(
+      "Runtime web: starting touch calibration"
+    );
+
+    const bool calibrated =
+      runIntegratedTouchCalibration(false);
+
+    if (calibrated) {
+      runtimeTouchCalibrationResultMessage =
+        "Touch calibration was saved and the touchscreen is enabled.";
+      runtimeTouchCalibrationResultError = false;
+    } else if (touchCalibrationWasBypassed()) {
+      runtimeTouchCalibrationResultMessage =
+        "Touch calibration was cancelled. Touch remains disabled until recalibrated.";
+      runtimeTouchCalibrationResultError = false;
+    } else if (
+      hadCalibration &&
+      touchCalibrationIsReady()
+    ) {
+      runtimeTouchCalibrationResultMessage =
+        "Touch recalibration was cancelled. The previous calibration was retained.";
+      runtimeTouchCalibrationResultError = false;
+    } else {
+      runtimeTouchCalibrationResultMessage =
+        "Touch calibration did not complete.";
+      runtimeTouchCalibrationResultError = true;
+    }
+
+    if (
+      timeValid &&
+      sdReady
+    ) {
+      redrawWorldClock();
+    } else {
+      showStatus(
+        "World Clock",
+        timeValid
+          ? "Waiting for map storage"
+          : "Waiting for network time"
+      );
+    }
+
+    Serial.printf(
+      "Runtime web: touch calibration complete; ok=%d ready=%d bypassed=%d\n",
+      calibrated,
+      touchCalibrationIsReady(),
+      touchCalibrationWasBypassed()
     );
   }
 

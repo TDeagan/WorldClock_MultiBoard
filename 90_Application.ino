@@ -113,7 +113,8 @@ void initializeWorldClock() {
   if (
     ACTIVE_BOARD.touchAvailable &&
     touchHardwareIsReady() &&
-    !touchCalibrationIsReady()
+    !touchCalibrationIsReady() &&
+    !touchCalibrationWasBypassed()
   ) {
     runIntegratedTouchCalibration(true);
   }
