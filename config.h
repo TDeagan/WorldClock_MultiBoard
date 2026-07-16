@@ -11,7 +11,7 @@
 #define BOARD_E32R28T           2
 #define BOARD_ELEGOO_EL_EB_009  3
 
-#define WORLDCLOCK_BOARD BOARD_E32R28T
+#define WORLDCLOCK_BOARD BOARD_HELTEC_WROOM_28
 
 #include "board_profiles.h"
 
@@ -299,7 +299,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.0-alpha1";
+  "5.0-alpha2";
 
 // ============================================================
 // STARTUP SPLASH
@@ -765,6 +765,23 @@ bool loadTimeSettings();
 bool saveTimeSettings();
 bool loadLocationGridSettings();
 bool saveLocationGridSettings();
+
+// Shared settings controller used by browser and touchscreen interfaces.
+bool saveUtcOffsetPreference(int offsetMinutes);
+bool applyTimeDisplaySettings(
+  const TimeSettings &requestedTime,
+  int requestedUtcOffsetMinutes,
+  const DisplaySettings &requestedDisplay,
+  bool &timeZoneChangedOut,
+  bool &clockDisplayChangedOut,
+  bool &orientationChangedOut
+);
+bool applyLocationSettings(
+  const LocationGridSettings &requestedLocation
+);
+bool applyOverlaySettings(
+  const OverlaySettings &requestedOverlays
+);
 
 void clearNetworkSettings();
 void serviceConfigurationButton();

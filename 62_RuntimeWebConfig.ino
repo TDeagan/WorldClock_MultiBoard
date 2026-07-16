@@ -189,25 +189,9 @@ bool parseOffsetMagnitudeRuntime(const String &text, int &minutesOut) {
 bool saveRuntimeUtcOffset(
   int offsetMinutes
 ) {
-  Preferences preferences;
-
-  if (
-    !preferences.begin(
-      PREF_NAMESPACE,
-      false
-    )
-  ) {
-    return false;
-  }
-
-  const bool ok =
-    preferences.putInt(
-      PREF_KEY_OFFSET_MINUTES,
-      offsetMinutes
-    ) > 0;
-
-  preferences.end();
-  return ok;
+  return saveUtcOffsetPreference(
+    offsetMinutes
+  );
 }
 
 
