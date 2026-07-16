@@ -32,6 +32,10 @@ void renderOverlayLayers(time_t epoch) {
 
 
 void renderStatusBar() {
+  if (touchUiIsOpen()) {
+    return;
+  }
+
   drawClock();
 
   renderState.epoch =
@@ -43,6 +47,7 @@ void renderStatusBar() {
 
 bool renderWorldDisplay() {
   if (
+    touchUiIsOpen() ||
     !timeValid ||
     !sdReady
   ) {
@@ -83,6 +88,7 @@ bool renderWorldDisplay() {
 
 void redrawWorldClock() {
   if (
+    touchUiIsOpen() ||
     !timeValid ||
     !sdReady
   ) {

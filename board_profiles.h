@@ -1,13 +1,16 @@
 #pragma once
 
+#include <Arduino.h>
+
 // ============================================================
 // BOARD PROFILE DATA
 // ============================================================
 //
-// The numeric board identifiers are declared in config.h before this
-// file is included. Add future boards here without changing the
-// application tabs.
-//
+// The numeric board identifiers are declared in config.h before this file is
+// included. Display and SD values are inherited from the working WorldClock
+// 4.7.1 profiles. Touch wiring has been physically verified on the Heltec
+// WROOM and E32R28T boards. The Elegoo/CYD touch profile remains disabled
+// until a physical board can be tested.
 
 struct BoardProfile {
   const char *name;
@@ -37,6 +40,22 @@ struct BoardProfile {
   int sdMosi;
   int sdCs;
 
+  // XPT2046 touch controller. Touch uses software SPI so it does not
+  // reconfigure either hardware SPI peripheral used by the TFT and SD card.
+  bool touchAvailable;
+  int touchSclk;
+  int touchMosi;
+  int touchMiso;
+  int touchCs;
+  int touchIrq;
+
+  // Finger-oriented acquisition and gesture defaults.
+  uint16_t touchPressureMinimum;
+  uint8_t touchMedianSamples;
+  uint8_t touchStableFrames;
+  uint16_t touchTapMoveTolerance;
+  uint16_t touchDropoutGraceMs;
+
   // Runtime setup/reset button
   int configurationButtonPin;
 
@@ -44,51 +63,40 @@ struct BoardProfile {
   int nominalFlashMegabytes;
 };
 
-// ------------------------------------------------------------
-// Heltec-labeled ESP32-WROOM-32 2.8-inch display
-//
-// These values exactly reproduce the uploaded, working v3.4 build.
-// ------------------------------------------------------------
+// Verified common XPT2046 wiring:
+// CLK=25, DIN/MOSI=32, DO/MISO=39, CS=33, IRQ=36.
 
 static constexpr BoardProfile PROFILE_HELTEC_WROOM_28 = {
   "Heltec ESP32-WROOM-32 2.8",
   14, 13, 12, 15, 2, -1, 21, true,
   240, 320, 240, 320, 3, false, false,
   18, 19, 23, 5,
+  true, 25, 32, 39, 33, 36,
+  80, 9, 2, 22, 100,
   0,
   8
 };
-
-// ------------------------------------------------------------
-// Original E32R28T
-//
-// This preserves the unusual geometry and rotation that were proven
-// on the original board.
-// ------------------------------------------------------------
 
 static constexpr BoardProfile PROFILE_E32R28T = {
   "E32R28T ESP32-32E",
   14, 13, 12, 15, 2, -1, 21, true,
   320, 240, 320, 240, 4, true, false,
   18, 19, 23, 5,
+  true, 25, 32, 39, 33, 36,
+  60, 9, 2, 22, 120,
   0,
   4
 };
 
-// ------------------------------------------------------------
-// Elegoo EL-EB-009 / ESP32-2432S028R CYD
-//
-// Standard CYD display/SD connections and normal ILI9341 geometry.
-// If a particular production revision is upside down, change the
-// rotation here from 1 to 3. If only red and blue are exchanged,
-// change rgbOrder from false to true.
-// ------------------------------------------------------------
-
+// Display/SD values come from WorldClock 4.7.1. Touch is intentionally
+// disabled until the controller wiring and calibration are hardware-tested.
 static constexpr BoardProfile PROFILE_ELEGOO_EL_EB_009 = {
-  "Elegoo EL-EB-009 CYD",
+  "Elegoo EL-EB-009 CYD (touch untested)",
   14, 13, 12, 15, 2, -1, 21, true,
   240, 320, 240, 320, 1, false, false,
   18, 19, 23, 5,
+  false, 25, 32, 39, 33, 36,
+  120, 7, 2, 18, 80,
   0,
   4
 };

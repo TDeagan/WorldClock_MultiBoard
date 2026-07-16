@@ -21,6 +21,10 @@ void showStatus(
   const String &line1,
   const String &line2
 ) {
+  if (touchUiIsOpen()) {
+    return;
+  }
+
   lcd.fillScreen(TFT_BLACK);
   centerText(line1, 105, TFT_WHITE);
 
@@ -238,6 +242,10 @@ void applyDisplayRotation() {
   lcd.setRotation(
     effectiveDisplayRotation()
   );
+
+  // Safe during startup: the touch UI ignores this callback until its
+  // hardware layer has been initialized.
+  touchUiHandleDisplayRotationChanged();
 }
 
 

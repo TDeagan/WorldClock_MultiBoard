@@ -11,7 +11,7 @@
 #define BOARD_E32R28T           2
 #define BOARD_ELEGOO_EL_EB_009  3
 
-#define WORLDCLOCK_BOARD BOARD_HELTEC_WROOM_28
+#define WORLDCLOCK_BOARD BOARD_E32R28T
 
 #include "board_profiles.h"
 
@@ -28,6 +28,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <esp_system.h>
+#include "XPT2046Soft.h"
 
 // ============================================================
 // TARGET BOARD
@@ -76,6 +77,12 @@ static constexpr int SD_MISO = ACTIVE_BOARD.sdMiso;
 static constexpr int SD_MOSI = ACTIVE_BOARD.sdMosi;
 static constexpr int SD_CS   = ACTIVE_BOARD.sdCs;
 
+static constexpr int TOUCH_SCLK = ACTIVE_BOARD.touchSclk;
+static constexpr int TOUCH_MOSI = ACTIVE_BOARD.touchMosi;
+static constexpr int TOUCH_MISO = ACTIVE_BOARD.touchMiso;
+static constexpr int TOUCH_CS   = ACTIVE_BOARD.touchCs;
+static constexpr int TOUCH_IRQ  = ACTIVE_BOARD.touchIrq;
+
 static constexpr int CONFIG_BUTTON_PIN =
   ACTIVE_BOARD.configurationButtonPin;
 
@@ -112,6 +119,24 @@ static constexpr uint32_t RAW_MAP_BYTES =
   MAP_W * MAP_H * sizeof(uint16_t);
 
 static constexpr int DISPLAY_ROTATION = ACTIVE_BOARD.displayRotation;
+
+// ============================================================
+// TOUCHSCREEN AND TOUCH UI
+// ============================================================
+
+// Calibration and pressure values are compatible with the standalone
+// ESP32_MultiBoard_TouchTest application. This lets Version 5 reuse the
+// calibration already saved in NVS on a tested board.
+static constexpr uint16_t TOUCH_CALIBRATION_MAGIC = 0x5A71;
+static constexpr const char *TOUCH_TEST_PREF_NAMESPACE = "touchtest";
+
+static constexpr unsigned long TOUCH_UI_INACTIVITY_MS = 60000UL;
+static constexpr unsigned long TOUCH_UI_DIAGNOSTICS_REFRESH_MS = 250UL;
+static constexpr int TOUCH_BUTTON_TRACK_MARGIN = 12;
+static constexpr uint8_t TOUCH_BUTTON_CANCEL_OUTSIDE_FRAMES = 3;
+static constexpr uint16_t TOUCH_PRESSURE_STEP = 20;
+static constexpr uint16_t TOUCH_PRESSURE_MINIMUM_ALLOWED = 0;
+static constexpr uint16_t TOUCH_PRESSURE_MAXIMUM_ALLOWED = 1200;
 
 // ============================================================
 // SD-CARD FILENAMES
@@ -274,7 +299,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "4.7.1";
+  "5.0-alpha1";
 
 // ============================================================
 // STARTUP SPLASH
@@ -434,6 +459,54 @@ struct RenderState {
   bool baseLayerDrawn = false;
   bool overlayLayersDrawn = false;
   bool statusLayerDrawn = false;
+};
+
+struct TouchCalibration {
+  uint16_t magic = TOUCH_CALIBRATION_MAGIC;
+  uint8_t boardId = WORLDCLOCK_BOARD;
+  uint8_t rotation = 0;
+  uint16_t screenWidth = 0;
+  uint16_t screenHeight = 0;
+  int16_t rawLeft = 0;
+  int16_t rawRight = 4095;
+  int16_t rawTop = 0;
+  int16_t rawBottom = 4095;
+  bool swapXY = false;
+};
+
+enum class TouchEventType : uint8_t {
+  None,
+  Down,
+  Move,
+  Up
+};
+
+struct TouchEvent {
+  TouchEventType type = TouchEventType::None;
+  int x = -1;
+  int y = -1;
+  uint16_t rawX = 0;
+  uint16_t rawY = 0;
+  uint16_t pressure = 0;
+  unsigned long durationMs = 0;
+};
+
+struct TouchDiagnostics {
+  bool hardwareAvailable = false;
+  bool initialized = false;
+  bool calibrationReady = false;
+  bool usingOppositeRotationCalibration = false;
+  bool contact = false;
+  bool accepted = false;
+  uint8_t activeRotation = 0;
+  uint8_t calibrationRotation = 0;
+  uint16_t pressureMinimum = 0;
+  uint16_t rawX = 0;
+  uint16_t rawY = 0;
+  uint16_t pressure = 0;
+  int screenX = -1;
+  int screenY = -1;
+  const char *state = "OFF";
 };
 
 
@@ -704,3 +777,21 @@ void startRuntimeConfigServer();
 void serviceRuntimeConfigServer();
 String buildDiagnosticsPage();
 String buildMapMaintenancePage(const String &message = "", bool error = false);
+
+// Touchscreen hardware and event layer
+bool initializeTouchHardware();
+bool pollTouchEvent(TouchEvent &eventOut);
+bool touchHardwareIsReady();
+bool touchCalibrationIsReady();
+const TouchDiagnostics &getTouchDiagnostics();
+uint16_t getTouchPressureMinimum();
+void adjustTouchPressureMinimum(int delta);
+void reloadTouchCalibrationForDisplayRotation();
+
+// Touchscreen user interface
+void initializeTouchUi();
+void serviceTouchUi();
+bool touchUiIsOpen();
+void closeTouchUi(bool redrawClock = true);
+void touchUiHandleDisplayRotationChanged();
+

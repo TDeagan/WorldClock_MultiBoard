@@ -105,6 +105,10 @@ void initializeWorldClock() {
 
   showSplashScreen();
 
+  // Touch reuses calibration saved by the standalone touch-test app.
+  // Missing calibration does not prevent normal clock or browser operation.
+  initializeTouchUi();
+
   Serial.printf(
     "Board profile: %s\n",
     ACTIVE_BOARD.name
@@ -190,6 +194,7 @@ void initializeWorldClock() {
 void serviceWorldClock() {
   serviceConfigurationButton();
   serviceRuntimeConfigServer();
+  serviceTouchUi();
 
   const unsigned long nowMs =
     millis();
@@ -268,6 +273,14 @@ void serviceWorldClock() {
       markCurrentSchedulerBuckets();
       lastClockUpdate = nowMs;
     }
+  }
+
+  // While a touch page is open, keep Wi-Fi, the web server, configuration
+  // button, and recovery services alive, but do not let scheduled clock/map
+  // painting overwrite the touchscreen interface.
+  if (touchUiIsOpen()) {
+    delay(10);
+    return;
   }
 
   if (
