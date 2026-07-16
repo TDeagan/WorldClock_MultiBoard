@@ -1,10 +1,12 @@
-# ESP32 World Clock v5.0-rc1
+# ESP32 World Clock v5.0
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 ILI9341 screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, and a latitude/longitude grid.
 
 The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware.
 
-## 1. Using an Installed World Clock
+Version 5.0 is the stable release following the tested 5.0-rc1 build. The WROOM and E32R28T board profiles have been tested on physical hardware. The Elegoo/CYD profile is included, but its touchscreen remains intentionally disabled until verified on that hardware.
+
+## Section 1: Using an Installed World Clock
 
 ### What appears on the display
 
@@ -246,7 +248,7 @@ Use the browser's **Refresh** link to update the values.
 - Check the Diagnostics page for Wi-Fi and ISS status.
 - The main clock and Sun/Moon display can continue even if the external ISS service is temporarily unavailable.
 
-## 2. Installing the Firmware on Your Own Device
+## Section 2: Installing the Firmware on Your Own Device
 
 ### Supported target boards
 
@@ -353,7 +355,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.0-rc1";
+  "5.0";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
