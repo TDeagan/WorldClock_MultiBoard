@@ -1,8 +1,8 @@
-# ESP32 World Clock v4.7.1
+# ESP32 World Clock v5.0-alpha3
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 ILI9341 screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, and a latitude/longitude grid.
 
-The clock is configured from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware.
+The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware.
 
 ## 1. Using an Installed World Clock
 
@@ -45,6 +45,21 @@ When the clock has no saved Wi-Fi configuration, it starts its own temporary set
 The clock saves the settings, restarts, connects to the selected Wi-Fi network, synchronizes its time, prepares the map cache if needed, and then displays the world clock.
 
 US time-zone presets apply daylight-saving-time changes automatically. A fixed UTC offset does not.
+
+### Using the touchscreen menu
+
+Tap the bottom status bar on the clock display to open the touchscreen menu. The verified touchscreen interface provides:
+
+- Time-zone, clock-format, seconds, and display-orientation settings
+- Home latitude, longitude, hemisphere, marker, and coordinate-grid settings
+- Sun, Moon, ISS, orbit-track, and track-style settings
+- A scrollable daylight-map catalog with PNG and cache status
+- Source-PNG map previews
+- Map selection and application
+- Daylight, night, and complete cache rebuild controls
+- Touch, Wi-Fi, SD-card, NTP, and selected-map diagnostics
+
+Settings changed on the touchscreen use the same saved Preferences values as the browser controls. The menu returns to the clock automatically after one minute without activity.
 
 ### Opening the control panel later
 

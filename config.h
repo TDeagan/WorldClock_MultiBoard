@@ -299,7 +299,7 @@ static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.0-alpha2";
+  "5.0-alpha3";
 
 // ============================================================
 // STARTUP SPLASH
@@ -651,6 +651,7 @@ int pngDrawCallback(PNGDRAW *draw);
 
 bool rawMapIsValid(const char *path);
 bool pngMapIsValid(const char *path, bool fullDecode = false);
+bool renderPngPreview(const char *path, int topY, int height);
 
 bool isSafeDayMapFilename(const String &filename);
 String dayMapPngPath(const String &filename);

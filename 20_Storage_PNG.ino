@@ -257,6 +257,116 @@ int pngDrawCallback(PNGDRAW *draw) {
 }
 
 
+
+namespace {
+
+int pngPreviewTopY = 0;
+int pngPreviewHeight = 0;
+bool pngPreviewFailed = false;
+
+int pngPreviewDrawCallback(PNGDRAW *draw) {
+  if (
+    draw == nullptr ||
+    draw->iWidth != MAP_W ||
+    draw->y < 0 ||
+    draw->y >= MAP_H ||
+    pngPreviewHeight <= 0
+  ) {
+    pngPreviewFailed = true;
+    return 0;
+  }
+
+  png.getLineAsRGB565(
+    draw,
+    pngLine,
+    PNG_RGB565_LITTLE_ENDIAN,
+    0x00000000
+  );
+
+  const int destinationY0 =
+    pngPreviewTopY +
+    (draw->y * pngPreviewHeight) / MAP_H;
+
+  const int destinationY1 =
+    pngPreviewTopY +
+    ((draw->y + 1) * pngPreviewHeight) / MAP_H;
+
+  for (
+    int destinationY = destinationY0;
+    destinationY < destinationY1;
+    ++destinationY
+  ) {
+    if (
+      destinationY >= 0 &&
+      destinationY < SCREEN_H
+    ) {
+      lcd.pushImage(
+        0,
+        destinationY,
+        MAP_W,
+        1,
+        pngLine
+      );
+    }
+  }
+
+  return 1;
+}
+
+} // namespace
+
+
+bool renderPngPreview(
+  const char *path,
+  int topY,
+  int height
+) {
+  if (
+    path == nullptr ||
+    height <= 0 ||
+    !SD.exists(path)
+  ) {
+    return false;
+  }
+
+  pngPreviewTopY = topY;
+  pngPreviewHeight = height;
+  pngPreviewFailed = false;
+
+  const int openResult = png.open(
+    path,
+    pngOpenCallback,
+    pngCloseCallback,
+    pngReadCallback,
+    pngSeekCallback,
+    pngPreviewDrawCallback
+  );
+
+  if (openResult != PNG_SUCCESS) {
+    png.close();
+    return false;
+  }
+
+  bool valid =
+    png.getWidth() == MAP_W &&
+    png.getHeight() == MAP_H &&
+    !png.isInterlaced();
+
+  if (valid) {
+    lcd.startWrite();
+
+    valid =
+      png.decode(nullptr, PNG_CHECK_CRC) == PNG_SUCCESS &&
+      !pngPreviewFailed;
+
+    lcd.endWrite();
+  }
+
+  png.close();
+  return valid;
+}
+
+
 bool rawMapIsValid(const char *path) {
   File file = SD.open(path, FILE_READ);
 

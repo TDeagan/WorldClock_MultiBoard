@@ -2,10 +2,10 @@
 // WorldClock Version 5 alpha touchscreen user interface
 // ============================================================
 //
-// Alpha 2 adds editable Time/Display, Location, and Overlay pages. Settings
-// are staged locally until APPLY is pressed, then saved through the same
-// application structures and Preferences keys used by the browser interface.
-// Maps and Network remain placeholders for later alphas.
+// Alpha 3 adds a functional Maps interface with a scrollable map catalog,
+// source-PNG preview, selection/apply controls, validation and cache status,
+// cache maintenance, and automatic fallback awareness. Network remains a
+// placeholder for a later alpha.
 // ============================================================
 
 namespace {
@@ -17,6 +17,8 @@ enum class TouchUiPage : uint8_t {
   Location,
   Overlays,
   Maps,
+  MapPreview,
+  MapMaintenance,
   Network,
   Diagnostics
 };
@@ -30,6 +32,20 @@ enum class TouchUiButtonId : uint8_t {
   Maps,
   Network,
   Diagnostics,
+
+  MapRow0,
+  MapRow1,
+  MapRow2,
+  MapPagePrevious,
+  MapPageNext,
+  MapPreview,
+  MapApply,
+  MapTools,
+  MapValidate,
+  MapRescan,
+  MapRebuildSelected,
+  MapRebuildNight,
+  MapRebuildAll,
 
   TimeZonePrevious,
   TimeZoneNext,
@@ -330,6 +346,150 @@ static constexpr TouchUiButton OVERLAY_APPLY = {
 };
 
 // ------------------------------------------------------------
+// Maps page, preview, and maintenance buttons
+// ------------------------------------------------------------
+
+static constexpr TouchUiButton MAP_ROW_0 = {
+  TouchUiButtonId::MapRow0,
+  8, 43, 304, 34,
+  "",
+  0x2104
+};
+
+static constexpr TouchUiButton MAP_ROW_1 = {
+  TouchUiButtonId::MapRow1,
+  8, 80, 304, 34,
+  "",
+  0x2104
+};
+
+static constexpr TouchUiButton MAP_ROW_2 = {
+  TouchUiButtonId::MapRow2,
+  8, 117, 304, 34,
+  "",
+  0x2104
+};
+
+static constexpr TouchUiButton MAP_PAGE_PREVIOUS = {
+  TouchUiButtonId::MapPagePrevious,
+  8, 155, 50, 28,
+  "<",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton MAP_PAGE_NEXT = {
+  TouchUiButtonId::MapPageNext,
+  62, 155, 50, 28,
+  ">",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton MAP_PREVIEW = {
+  TouchUiButtonId::MapPreview,
+  116, 155, 94, 28,
+  "PREVIEW",
+  TFT_PURPLE
+};
+
+static constexpr TouchUiButton MAP_APPLY = {
+  TouchUiButtonId::MapApply,
+  214, 155, 98, 28,
+  "APPLY",
+  TFT_DARKGREEN
+};
+
+static constexpr TouchUiButton MAP_TOOLS = {
+  TouchUiButtonId::MapTools,
+  8, 188, 96, 38,
+  "TOOLS",
+  TFT_MAROON
+};
+
+static constexpr TouchUiButton MAP_BACK = {
+  TouchUiButtonId::Back,
+  108, 188, 96, 38,
+  "BACK",
+  TFT_NAVY
+};
+
+static constexpr TouchUiButton MAP_HOME = {
+  TouchUiButtonId::Home,
+  208, 188, 104, 38,
+  "CLOCK",
+  TFT_DARKGREEN
+};
+
+static constexpr TouchUiButton PREVIEW_BACK = {
+  TouchUiButtonId::Back,
+  8, 192, 96, 36,
+  "BACK",
+  TFT_NAVY
+};
+
+static constexpr TouchUiButton PREVIEW_APPLY = {
+  TouchUiButtonId::MapApply,
+  108, 192, 96, 36,
+  "APPLY",
+  TFT_DARKGREEN
+};
+
+static constexpr TouchUiButton PREVIEW_TOOLS = {
+  TouchUiButtonId::MapTools,
+  208, 192, 104, 36,
+  "TOOLS",
+  TFT_MAROON
+};
+
+static constexpr TouchUiButton MAP_VALIDATE = {
+  TouchUiButtonId::MapValidate,
+  8, 72, 148, 36,
+  "VALIDATE PNGS",
+  TFT_PURPLE
+};
+
+static constexpr TouchUiButton MAP_RESCAN = {
+  TouchUiButtonId::MapRescan,
+  164, 72, 148, 36,
+  "RESCAN",
+  TFT_NAVY
+};
+
+static constexpr TouchUiButton MAP_REBUILD_SELECTED = {
+  TouchUiButtonId::MapRebuildSelected,
+  8, 112, 304, 36,
+  "REBUILD SELECTED CACHE",
+  TFT_DARKGREEN
+};
+
+static constexpr TouchUiButton MAP_REBUILD_NIGHT = {
+  TouchUiButtonId::MapRebuildNight,
+  8, 152, 148, 36,
+  "REBUILD NIGHT",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton MAP_REBUILD_ALL = {
+  TouchUiButtonId::MapRebuildAll,
+  164, 152, 148, 36,
+  "REBUILD ALL",
+  TFT_MAROON
+};
+
+static constexpr TouchUiButton MAINTENANCE_BACK = {
+  TouchUiButtonId::Back,
+  8, 192, 148, 36,
+  "BACK TO MAPS",
+  TFT_NAVY
+};
+
+static constexpr TouchUiButton MAINTENANCE_HOME = {
+  TouchUiButtonId::Home,
+  164, 192, 148, 36,
+  "CLOCK",
+  TFT_DARKGREEN
+};
+
+// ------------------------------------------------------------
 // Placeholder and diagnostics buttons
 // ------------------------------------------------------------
 
@@ -421,6 +581,35 @@ static constexpr const TouchUiButton *OVERLAY_BUTTONS[] = {
   &OVERLAY_APPLY
 };
 
+static constexpr const TouchUiButton *MAP_BUTTONS[] = {
+  &MAP_ROW_0,
+  &MAP_ROW_1,
+  &MAP_ROW_2,
+  &MAP_PAGE_PREVIOUS,
+  &MAP_PAGE_NEXT,
+  &MAP_PREVIEW,
+  &MAP_APPLY,
+  &MAP_TOOLS,
+  &MAP_BACK,
+  &MAP_HOME
+};
+
+static constexpr const TouchUiButton *MAP_PREVIEW_BUTTONS[] = {
+  &PREVIEW_BACK,
+  &PREVIEW_APPLY,
+  &PREVIEW_TOOLS
+};
+
+static constexpr const TouchUiButton *MAP_MAINTENANCE_BUTTONS[] = {
+  &MAP_VALIDATE,
+  &MAP_RESCAN,
+  &MAP_REBUILD_SELECTED,
+  &MAP_REBUILD_NIGHT,
+  &MAP_REBUILD_ALL,
+  &MAINTENANCE_BACK,
+  &MAINTENANCE_HOME
+};
+
 static constexpr const TouchUiButton *PLACEHOLDER_BUTTONS[] = {
   &PLACEHOLDER_BACK,
   &PLACEHOLDER_HOME
@@ -466,6 +655,18 @@ uint8_t draftCoordinateStepIndex = 1;
 
 OverlaySettings draftOverlaySettings;
 
+DaylightMapInfo touchMapCatalog[MAX_DAYLIGHT_MAPS];
+size_t touchMapCatalogCount = 0;
+size_t touchMapCatalogTotalCount = 0;
+size_t touchMapListOffset = 0;
+int touchMapDraftIndex = -1;
+String touchMapDraftFilename;
+String touchMapMessage;
+bool touchMapMessageError = false;
+bool touchMapFullValidation = false;
+
+static constexpr size_t TOUCH_MAP_ROWS_PER_PAGE = 3;
+
 static constexpr double COORDINATE_STEPS[] = {
   0.1,
   1.0,
@@ -502,6 +703,19 @@ void drawTouchUiPlaceholder(TouchUiPage page);
 void drawTouchUiTimeDisplay();
 void drawTouchUiLocation();
 void drawTouchUiOverlays();
+void drawTouchUiMaps();
+void drawTouchUiMapPreview();
+void drawTouchUiMapMaintenance();
+void drawTouchUiMapRow(size_t visibleRow, bool pressed = false);
+void drawTouchUiMapMessage();
+void drawTouchUiBusy(const char *title, const String &message);
+void refreshTouchMapCatalog(bool fullValidation, bool preserveDraft = true);
+int touchMapCatalogIndexForRowButton(TouchUiButtonId id);
+bool touchMapDraftIsUsable();
+void applyTouchUiMap();
+void rebuildTouchUiSelectedMapCache();
+void rebuildTouchUiNightCache();
+void rebuildTouchUiAllCaches();
 void drawTouchUiDiagnosticsData();
 void drawTouchUiDiagnostics();
 void drawActiveTouchUiPage();
@@ -578,6 +792,26 @@ void touchUiButtonsForPage(
       break;
 
     case TouchUiPage::Maps:
+      buttonsOut = MAP_BUTTONS;
+      buttonCountOut =
+        sizeof(MAP_BUTTONS) /
+        sizeof(MAP_BUTTONS[0]);
+      break;
+
+    case TouchUiPage::MapPreview:
+      buttonsOut = MAP_PREVIEW_BUTTONS;
+      buttonCountOut =
+        sizeof(MAP_PREVIEW_BUTTONS) /
+        sizeof(MAP_PREVIEW_BUTTONS[0]);
+      break;
+
+    case TouchUiPage::MapMaintenance:
+      buttonsOut = MAP_MAINTENANCE_BUTTONS;
+      buttonCountOut =
+        sizeof(MAP_MAINTENANCE_BUTTONS) /
+        sizeof(MAP_MAINTENANCE_BUTTONS[0]);
+      break;
+
     case TouchUiPage::Network:
       buttonsOut = PLACEHOLDER_BUTTONS;
       buttonCountOut =
@@ -655,6 +889,17 @@ TouchUiButtonId touchUiButtonAt(
     ++i
   ) {
     if (
+      (
+        buttons[i]->id == TouchUiButtonId::MapRow0 ||
+        buttons[i]->id == TouchUiButtonId::MapRow1 ||
+        buttons[i]->id == TouchUiButtonId::MapRow2
+      ) &&
+      touchMapCatalogIndexForRowButton(buttons[i]->id) < 0
+    ) {
+      continue;
+    }
+
+    if (
       pointInsideTouchUiButton(
         x,
         y,
@@ -667,6 +912,45 @@ TouchUiButtonId touchUiButtonAt(
 
   return TouchUiButtonId::None;
 }
+
+int touchMapCatalogIndexForRowButton(
+  TouchUiButtonId id
+) {
+  size_t visibleRow = TOUCH_MAP_ROWS_PER_PAGE;
+
+  switch (id) {
+    case TouchUiButtonId::MapRow0:
+      visibleRow = 0;
+      break;
+
+    case TouchUiButtonId::MapRow1:
+      visibleRow = 1;
+      break;
+
+    case TouchUiButtonId::MapRow2:
+      visibleRow = 2;
+      break;
+
+    default:
+      return -1;
+  }
+
+  const size_t catalogIndex =
+    touchMapListOffset + visibleRow;
+
+  return catalogIndex < touchMapCatalogCount
+    ? static_cast<int>(catalogIndex)
+    : -1;
+}
+
+
+bool touchMapDraftIsUsable() {
+  return
+    touchMapDraftIndex >= 0 &&
+    static_cast<size_t>(touchMapDraftIndex) < touchMapCatalogCount &&
+    touchMapCatalog[touchMapDraftIndex].pngValid;
+}
+
 
 String touchUiButtonDisplayLabel(
   const TouchUiButton &button
@@ -758,6 +1042,26 @@ void drawTouchUiButton(
   const TouchUiButton &button,
   bool pressed
 ) {
+  if (
+    button.id == TouchUiButtonId::MapRow0 ||
+    button.id == TouchUiButtonId::MapRow1 ||
+    button.id == TouchUiButtonId::MapRow2
+  ) {
+    size_t visibleRow = 0;
+
+    if (button.id == TouchUiButtonId::MapRow1) {
+      visibleRow = 1;
+    } else if (button.id == TouchUiButtonId::MapRow2) {
+      visibleRow = 2;
+    }
+
+    drawTouchUiMapRow(
+      visibleRow,
+      pressed
+    );
+    return;
+  }
+
   const uint16_t fillColor =
     pressed
       ? TFT_YELLOW
@@ -1011,6 +1315,12 @@ const char *touchUiPageTitle(
     case TouchUiPage::Maps:
       return "MAPS";
 
+    case TouchUiPage::MapPreview:
+      return "MAP PREVIEW";
+
+    case TouchUiPage::MapMaintenance:
+      return "MAP TOOLS";
+
     case TouchUiPage::Network:
       return "NETWORK";
 
@@ -1061,19 +1371,11 @@ void drawTouchUiPlaceholder(
     TFT_BLACK
   );
 
-  if (page == TouchUiPage::Maps) {
-    lcd.drawString(
-      "Map selection and cache controls will be added next.",
-      SCREEN_W / 2,
-      112
-    );
-  } else {
-    lcd.drawString(
-      "Wi-Fi scan and keyboard controls will be added later.",
-      SCREEN_W / 2,
-      112
-    );
-  }
+  lcd.drawString(
+    "Wi-Fi scan and keyboard controls will be added later.",
+    SCREEN_W / 2,
+    112
+  );
 
   lcd.setTextColor(
     TFT_YELLOW,
@@ -1449,6 +1751,735 @@ void drawTouchUiOverlays() {
 }
 
 // ------------------------------------------------------------
+// Maps page, preview, and maintenance
+// ------------------------------------------------------------
+
+String shortenedTouchMapFilename(
+  const String &filename,
+  size_t maximumLength
+) {
+  if (filename.length() <= maximumLength) {
+    return filename;
+  }
+
+  if (maximumLength <= 3) {
+    return filename.substring(0, maximumLength);
+  }
+
+  return
+    filename.substring(0, maximumLength - 3) +
+    "...";
+}
+
+
+void refreshTouchMapCatalog(
+  bool fullValidation,
+  bool preserveDraft
+) {
+  const String previousSelected =
+    selectedDayMapFilename;
+
+  const String preferredFilename =
+    preserveDraft && touchMapDraftFilename.length() > 0
+      ? touchMapDraftFilename
+      : selectedDayMapFilename;
+
+  touchMapCatalogCount = 0;
+  touchMapCatalogTotalCount = 0;
+  touchMapDraftIndex = -1;
+  touchMapFullValidation = fullValidation;
+
+  if (SD.cardType() == CARD_NONE) {
+    systemStatus.sdMounted = false;
+    touchMapDraftFilename = "";
+    touchMapListOffset = 0;
+    return;
+  }
+
+  systemStatus.sdMounted = true;
+  refreshStorageStatus();
+
+  touchMapCatalogCount = scanDaylightMaps(
+    touchMapCatalog,
+    MAX_DAYLIGHT_MAPS,
+    fullValidation,
+    &touchMapCatalogTotalCount
+  );
+
+  for (
+    size_t index = 0;
+    index < touchMapCatalogCount;
+    ++index
+  ) {
+    if (
+      touchMapCatalog[index].filename ==
+        preferredFilename
+    ) {
+      touchMapDraftIndex =
+        static_cast<int>(index);
+      break;
+    }
+  }
+
+  if (touchMapDraftIndex < 0) {
+    for (
+      size_t index = 0;
+      index < touchMapCatalogCount;
+      ++index
+    ) {
+      if (touchMapCatalog[index].selected) {
+        touchMapDraftIndex =
+          static_cast<int>(index);
+        break;
+      }
+    }
+  }
+
+  if (
+    touchMapDraftIndex < 0 &&
+    touchMapCatalogCount > 0
+  ) {
+    touchMapDraftIndex = 0;
+  }
+
+  if (touchMapDraftIndex >= 0) {
+    touchMapDraftFilename =
+      touchMapCatalog[touchMapDraftIndex].filename;
+
+    touchMapListOffset =
+      (
+        static_cast<size_t>(touchMapDraftIndex) /
+        TOUCH_MAP_ROWS_PER_PAGE
+      ) * TOUCH_MAP_ROWS_PER_PAGE;
+  } else {
+    touchMapDraftFilename = "";
+    touchMapListOffset = 0;
+  }
+
+  if (
+    previousSelected.length() > 0 &&
+    selectedDayMapFilename != previousSelected
+  ) {
+    touchMapMessage =
+      String("Fallback selected: ") +
+      selectedDayMapFilename;
+    touchMapMessageError = false;
+  }
+}
+
+
+void drawTouchUiMapMessage() {
+  lcd.fillRect(
+    0,
+    30,
+    SCREEN_W,
+    12,
+    TFT_BLACK
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::middle_center
+  );
+
+  if (touchMapMessage.length() > 0) {
+    lcd.setTextColor(
+      touchMapMessageError
+        ? TFT_RED
+        : TFT_CYAN,
+      TFT_BLACK
+    );
+
+    lcd.drawString(
+      shortenedTouchMapFilename(
+        touchMapMessage,
+        48
+      ),
+      SCREEN_W / 2,
+      35
+    );
+    return;
+  }
+
+  const size_t pageNumber =
+    touchMapCatalogCount == 0
+      ? 0
+      : touchMapListOffset /
+          TOUCH_MAP_ROWS_PER_PAGE + 1;
+
+  const size_t pageCount =
+    touchMapCatalogCount == 0
+      ? 0
+      : (
+          touchMapCatalogCount +
+          TOUCH_MAP_ROWS_PER_PAGE - 1
+        ) /
+        TOUCH_MAP_ROWS_PER_PAGE;
+
+  char line[96];
+
+  snprintf(
+    line,
+    sizeof(line),
+    "%u map%s  page %u/%u  %s validation",
+    static_cast<unsigned>(touchMapCatalogCount),
+    touchMapCatalogCount == 1 ? "" : "s",
+    static_cast<unsigned>(pageNumber),
+    static_cast<unsigned>(pageCount),
+    touchMapFullValidation ? "full" : "quick"
+  );
+
+  lcd.setTextColor(
+    TFT_CYAN,
+    TFT_BLACK
+  );
+
+  lcd.drawString(
+    line,
+    SCREEN_W / 2,
+    35
+  );
+}
+
+
+void drawTouchUiMapRow(
+  size_t visibleRow,
+  bool pressed
+) {
+  const TouchUiButton *button = nullptr;
+
+  switch (visibleRow) {
+    case 0:
+      button = &MAP_ROW_0;
+      break;
+
+    case 1:
+      button = &MAP_ROW_1;
+      break;
+
+    case 2:
+      button = &MAP_ROW_2;
+      break;
+
+    default:
+      return;
+  }
+
+  const size_t catalogIndex =
+    touchMapListOffset + visibleRow;
+
+  if (catalogIndex >= touchMapCatalogCount) {
+    lcd.fillRect(
+      button->x,
+      button->y,
+      button->w,
+      button->h,
+      TFT_BLACK
+    );
+    return;
+  }
+
+  const DaylightMapInfo &map =
+    touchMapCatalog[catalogIndex];
+
+  const bool draftSelected =
+    static_cast<int>(catalogIndex) ==
+      touchMapDraftIndex;
+
+  uint16_t fillColor = 0x2104;
+
+  if (map.selected) {
+    fillColor = TFT_DARKGREEN;
+  }
+
+  if (draftSelected) {
+    fillColor = TFT_NAVY;
+  }
+
+  if (pressed) {
+    fillColor = TFT_YELLOW;
+  }
+
+  const uint16_t textColor =
+    pressed ? TFT_BLACK : TFT_WHITE;
+
+  const uint16_t borderColor =
+    pressed
+      ? TFT_BLACK
+      : draftSelected
+          ? TFT_YELLOW
+          : map.selected
+              ? TFT_CYAN
+              : TFT_DARKGREY;
+
+  lcd.fillRoundRect(
+    button->x,
+    button->y,
+    button->w,
+    button->h,
+    4,
+    fillColor
+  );
+
+  lcd.drawRoundRect(
+    button->x,
+    button->y,
+    button->w,
+    button->h,
+    4,
+    borderColor
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::top_left
+  );
+
+  lcd.setTextColor(
+    textColor,
+    fillColor
+  );
+
+  String filename =
+    shortenedTouchMapFilename(
+      map.filename,
+      39
+    );
+
+  if (map.selected) {
+    filename = String("* ") + filename;
+  } else {
+    filename = String("  ") + filename;
+  }
+
+  lcd.drawString(
+    filename,
+    button->x + 5,
+    button->y + 4
+  );
+
+  String status =
+    map.pngValid
+      ? "PNG OK"
+      : "PNG BAD";
+
+  status +=
+    map.cacheValid
+      ? "   CACHE OK"
+      : "   CACHE MISSING";
+
+  if (map.selected) {
+    status += "   ACTIVE";
+  }
+
+  lcd.setTextColor(
+    pressed
+      ? TFT_BLACK
+      : map.pngValid
+          ? TFT_CYAN
+          : TFT_RED,
+    fillColor
+  );
+
+  lcd.drawString(
+    status,
+    button->x + 5,
+    button->y + 19
+  );
+}
+
+
+void drawTouchUiMaps() {
+  drawTouchUiHeader(
+    "MAPS"
+  );
+
+  drawTouchUiMapMessage();
+
+  drawTouchUiMapRow(0);
+  drawTouchUiMapRow(1);
+  drawTouchUiMapRow(2);
+
+  drawTouchUiButton(
+    MAP_PAGE_PREVIOUS
+  );
+
+  drawTouchUiButton(
+    MAP_PAGE_NEXT
+  );
+
+  drawTouchUiButton(
+    MAP_PREVIEW
+  );
+
+  drawTouchUiButton(
+    MAP_APPLY
+  );
+
+  drawTouchUiButton(
+    MAP_TOOLS
+  );
+
+  drawTouchUiButton(
+    MAP_BACK
+  );
+
+  drawTouchUiButton(
+    MAP_HOME
+  );
+
+  drawTouchUiFooter();
+}
+
+
+void drawTouchUiMapPreview() {
+  drawTouchUiHeader(
+    "MAP PREVIEW"
+  );
+
+  lcd.fillRect(
+    0,
+    30,
+    SCREEN_W,
+    157,
+    TFT_BLACK
+  );
+
+  bool previewed = false;
+
+  if (touchMapDraftIsUsable()) {
+    previewed = renderPngPreview(
+      touchMapCatalog[
+        touchMapDraftIndex
+      ].pngPath.c_str(),
+      30,
+      157
+    );
+  }
+
+  lcd.fillRect(
+    0,
+    30,
+    SCREEN_W,
+    14,
+    TFT_BLACK
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::middle_center
+  );
+
+  lcd.setTextColor(
+    previewed ? TFT_WHITE : TFT_RED,
+    TFT_BLACK
+  );
+
+  lcd.drawString(
+    previewed
+      ? shortenedTouchMapFilename(
+          touchMapDraftFilename,
+          45
+        )
+      : String("Preview unavailable"),
+    SCREEN_W / 2,
+    36
+  );
+
+  drawTouchUiButton(
+    PREVIEW_BACK
+  );
+
+  drawTouchUiButton(
+    PREVIEW_APPLY
+  );
+
+  drawTouchUiButton(
+    PREVIEW_TOOLS
+  );
+
+  drawTouchUiFooter();
+}
+
+
+void drawTouchUiMapMaintenance() {
+  drawTouchUiHeader(
+    "MAP TOOLS"
+  );
+
+  lcd.fillRect(
+    0,
+    30,
+    SCREEN_W,
+    40,
+    TFT_BLACK
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::top_center
+  );
+
+  lcd.setTextColor(
+    TFT_WHITE,
+    TFT_BLACK
+  );
+
+  lcd.drawString(
+    String("Selected: ") +
+      shortenedTouchMapFilename(
+        touchMapDraftFilename,
+        34
+      ),
+    SCREEN_W / 2,
+    33
+  );
+
+  String status;
+
+  if (touchMapDraftIsUsable()) {
+    const DaylightMapInfo &map =
+      touchMapCatalog[touchMapDraftIndex];
+
+    status =
+      map.cacheValid
+        ? "Day cache OK"
+        : "Day cache missing";
+  } else {
+    status = "No usable daylight map";
+  }
+
+  status +=
+    rawMapIsValid(NIGHT_RAW_FILE)
+      ? "   Night cache OK"
+      : "   Night cache missing";
+
+  lcd.setTextColor(
+    TFT_CYAN,
+    TFT_BLACK
+  );
+
+  lcd.drawString(
+    shortenedTouchMapFilename(
+      status,
+      47
+    ),
+    SCREEN_W / 2,
+    47
+  );
+
+  if (touchMapMessage.length() > 0) {
+    lcd.setTextColor(
+      touchMapMessageError
+        ? TFT_RED
+        : TFT_YELLOW,
+      TFT_BLACK
+    );
+
+    lcd.drawString(
+      shortenedTouchMapFilename(
+        touchMapMessage,
+        47
+      ),
+      SCREEN_W / 2,
+      59
+    );
+  }
+
+  for (
+    const TouchUiButton *button :
+      MAP_MAINTENANCE_BUTTONS
+  ) {
+    drawTouchUiButton(
+      *button
+    );
+  }
+
+  drawTouchUiFooter();
+}
+
+
+void drawTouchUiBusy(
+  const char *title,
+  const String &message
+) {
+  drawTouchUiHeader(
+    title
+  );
+
+  lcd.setFont(
+    &fonts::Font2
+  );
+
+  lcd.setTextDatum(
+    textdatum_t::middle_center
+  );
+
+  lcd.setTextColor(
+    TFT_WHITE,
+    TFT_BLACK
+  );
+
+  lcd.drawString(
+    message,
+    SCREEN_W / 2,
+    108
+  );
+
+  lcd.setFont(
+    &fonts::Font0
+  );
+
+  lcd.setTextColor(
+    TFT_CYAN,
+    TFT_BLACK
+  );
+
+  lcd.drawString(
+    "Please wait; do not remove the SD card.",
+    SCREEN_W / 2,
+    136
+  );
+}
+
+
+void applyTouchUiMap() {
+  if (!touchMapDraftIsUsable()) {
+    touchMapMessage = "Selected PNG is not usable";
+    touchMapMessageError = true;
+    drawTouchUiMaps();
+    return;
+  }
+
+  const String filename =
+    touchMapCatalog[touchMapDraftIndex].filename;
+
+  drawTouchUiBusy(
+    "APPLY MAP",
+    String("Applying ") +
+      shortenedTouchMapFilename(filename, 26)
+  );
+
+  const bool ok =
+    activateDayMap(
+      filename,
+      false
+    );
+
+  Serial.printf(
+    "Touch UI: map apply %s; ok=%d\n",
+    filename.c_str(),
+    ok
+  );
+
+  if (ok) {
+    closeTouchUi(true);
+    return;
+  }
+
+  refreshTouchMapCatalog(false, true);
+  touchMapMessage = "Map could not be applied";
+  touchMapMessageError = true;
+  activeTouchUiPage = TouchUiPage::Maps;
+  drawActiveTouchUiPage();
+}
+
+
+void rebuildTouchUiSelectedMapCache() {
+  if (!touchMapDraftIsUsable()) {
+    touchMapMessage = "No usable map selected";
+    touchMapMessageError = true;
+    drawTouchUiMapMaintenance();
+    return;
+  }
+
+  const String filename =
+    touchMapCatalog[touchMapDraftIndex].filename;
+
+  drawTouchUiBusy(
+    "REBUILD CACHE",
+    shortenedTouchMapFilename(filename, 28)
+  );
+
+  const bool ok =
+    rebuildDayMapCache(filename);
+
+  refreshTouchMapCatalog(false, true);
+  touchMapMessage = ok
+    ? "Selected cache rebuilt"
+    : "Selected cache rebuild failed";
+  touchMapMessageError = !ok;
+  activeTouchUiPage = TouchUiPage::MapMaintenance;
+  drawActiveTouchUiPage();
+}
+
+
+void rebuildTouchUiNightCache() {
+  drawTouchUiBusy(
+    "REBUILD CACHE",
+    "Rebuilding shared night map"
+  );
+
+  const bool ok =
+    rebuildMapCache(
+      false,
+      true
+    );
+
+  refreshTouchMapCatalog(false, true);
+  touchMapMessage = ok
+    ? "Night cache rebuilt"
+    : "Night cache rebuild failed";
+  touchMapMessageError = !ok;
+  activeTouchUiPage = TouchUiPage::MapMaintenance;
+  drawActiveTouchUiPage();
+}
+
+
+void rebuildTouchUiAllCaches() {
+  drawTouchUiBusy(
+    "REBUILD CACHES",
+    "Rebuilding daylight maps"
+  );
+
+  bool ok =
+    rebuildAllDayMapCaches();
+
+  if (ok) {
+    drawTouchUiBusy(
+      "REBUILD CACHES",
+      "Rebuilding shared night map"
+    );
+
+    ok = rebuildMapCache(
+      false,
+      true
+    );
+  }
+
+  refreshTouchMapCatalog(false, true);
+  touchMapMessage = ok
+    ? "All map caches rebuilt"
+    : "One or more cache rebuilds failed";
+  touchMapMessageError = !ok;
+  activeTouchUiPage = TouchUiPage::MapMaintenance;
+  drawActiveTouchUiPage();
+}
+
+
+// ------------------------------------------------------------
 // Diagnostics page
 // ------------------------------------------------------------
 
@@ -1687,6 +2718,19 @@ void prepareTouchUiDraft(
         overlaySettings;
       break;
 
+    case TouchUiPage::Maps:
+      touchMapMessage = "";
+      touchMapMessageError = false;
+      refreshTouchMapCatalog(
+        false,
+        true
+      );
+      break;
+
+    case TouchUiPage::MapPreview:
+    case TouchUiPage::MapMaintenance:
+      break;
+
     default:
       break;
   }
@@ -1727,6 +2771,17 @@ void drawActiveTouchUiPage() {
       break;
 
     case TouchUiPage::Maps:
+      drawTouchUiMaps();
+      break;
+
+    case TouchUiPage::MapPreview:
+      drawTouchUiMapPreview();
+      break;
+
+    case TouchUiPage::MapMaintenance:
+      drawTouchUiMapMaintenance();
+      break;
+
     case TouchUiPage::Network:
       drawTouchUiPlaceholder(
         activeTouchUiPage
@@ -1911,6 +2966,100 @@ void handleTouchUiButton(
       showTouchUiPage(
         TouchUiPage::Diagnostics
       );
+      break;
+
+    case TouchUiButtonId::MapRow0:
+    case TouchUiButtonId::MapRow1:
+    case TouchUiButtonId::MapRow2: {
+      const int catalogIndex =
+        touchMapCatalogIndexForRowButton(id);
+
+      if (catalogIndex >= 0) {
+        touchMapDraftIndex = catalogIndex;
+        touchMapDraftFilename =
+          touchMapCatalog[catalogIndex].filename;
+        touchMapMessage = "";
+        touchMapMessageError = false;
+        drawTouchUiMaps();
+      }
+      break;
+    }
+
+    case TouchUiButtonId::MapPagePrevious:
+      if (touchMapListOffset >= TOUCH_MAP_ROWS_PER_PAGE) {
+        touchMapListOffset -= TOUCH_MAP_ROWS_PER_PAGE;
+        drawTouchUiMaps();
+      }
+      break;
+
+    case TouchUiButtonId::MapPageNext:
+      if (
+        touchMapListOffset + TOUCH_MAP_ROWS_PER_PAGE <
+          touchMapCatalogCount
+      ) {
+        touchMapListOffset += TOUCH_MAP_ROWS_PER_PAGE;
+        drawTouchUiMaps();
+      }
+      break;
+
+    case TouchUiButtonId::MapPreview:
+      if (touchMapDraftIsUsable()) {
+        showTouchUiPage(
+          TouchUiPage::MapPreview
+        );
+      } else {
+        touchMapMessage = "Select a valid map first";
+        touchMapMessageError = true;
+        drawTouchUiMaps();
+      }
+      break;
+
+    case TouchUiButtonId::MapApply:
+      applyTouchUiMap();
+      break;
+
+    case TouchUiButtonId::MapTools:
+      showTouchUiPage(
+        TouchUiPage::MapMaintenance
+      );
+      break;
+
+    case TouchUiButtonId::MapValidate:
+      drawTouchUiBusy(
+        "VALIDATE MAPS",
+        "Decoding daylight PNG files"
+      );
+      refreshTouchMapCatalog(
+        true,
+        true
+      );
+      touchMapMessage = "Full PNG validation complete";
+      touchMapMessageError = false;
+      activeTouchUiPage = TouchUiPage::MapMaintenance;
+      drawActiveTouchUiPage();
+      break;
+
+    case TouchUiButtonId::MapRescan:
+      refreshTouchMapCatalog(
+        false,
+        true
+      );
+      touchMapMessage = "Map directory rescanned";
+      touchMapMessageError = false;
+      activeTouchUiPage = TouchUiPage::MapMaintenance;
+      drawActiveTouchUiPage();
+      break;
+
+    case TouchUiButtonId::MapRebuildSelected:
+      rebuildTouchUiSelectedMapCache();
+      break;
+
+    case TouchUiButtonId::MapRebuildNight:
+      rebuildTouchUiNightCache();
+      break;
+
+    case TouchUiButtonId::MapRebuildAll:
+      rebuildTouchUiAllCaches();
       break;
 
     case TouchUiButtonId::TimeZonePrevious: {
@@ -2167,9 +3316,18 @@ void handleTouchUiButton(
       break;
 
     case TouchUiButtonId::Back:
-      showTouchUiPage(
-        TouchUiPage::MainMenu
-      );
+      if (
+        activeTouchUiPage == TouchUiPage::MapPreview ||
+        activeTouchUiPage == TouchUiPage::MapMaintenance
+      ) {
+        showTouchUiPage(
+          TouchUiPage::Maps
+        );
+      } else {
+        showTouchUiPage(
+          TouchUiPage::MainMenu
+        );
+      }
       break;
 
     case TouchUiButtonId::Home:
