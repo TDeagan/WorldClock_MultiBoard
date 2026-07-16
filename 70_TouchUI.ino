@@ -2,10 +2,8 @@
 // WorldClock Version 5 alpha touchscreen user interface
 // ============================================================
 //
-// Alpha 4 adds touchscreen Wi-Fi scanning, tested-before-save connection
-// changes, saved-network removal, and a reusable Zoom R4-style on-screen
-// keyboard. The keyboard uses a selected cell plus CANCEL, left, right, and
-// check controls along the bottom; touching a cell moves the selection.
+// Alpha 5 adds integrated first-boot and diagnostics-driven touchscreen
+// calibration while retaining the Alpha 4 Wi-Fi and keyboard controls.
 // ============================================================
 
 namespace {
@@ -93,6 +91,7 @@ enum class TouchUiButtonId : uint8_t {
   ApplyOverlays,
 
   CancelSettings,
+  RecalibrateTouch,
   PressureDown,
   PressureUp,
   Back,
@@ -817,30 +816,37 @@ static constexpr TouchKeyboardCell KEYBOARD_SYMBOL2_CELLS[
 // Placeholder and diagnostics buttons
 // ------------------------------------------------------------
 
+static constexpr TouchUiButton BUTTON_RECALIBRATE_TOUCH = {
+  TouchUiButtonId::RecalibrateTouch,
+  8, 151, 304, 38,
+  "RECALIBRATE TOUCH",
+  TFT_MAROON
+};
+
 static constexpr TouchUiButton BUTTON_PRESSURE_DOWN = {
   TouchUiButtonId::PressureDown,
-  8, 151, 70, 38,
+  8, 195, 70, 32,
   "PRESS -",
   TFT_DARKGREY
 };
 
 static constexpr TouchUiButton BUTTON_PRESSURE_UP = {
   TouchUiButtonId::PressureUp,
-  86, 151, 70, 38,
+  86, 195, 70, 32,
   "PRESS +",
   TFT_DARKGREY
 };
 
 static constexpr TouchUiButton BUTTON_BACK = {
   TouchUiButtonId::Back,
-  164, 151, 70, 38,
+  164, 195, 70, 32,
   "BACK",
   TFT_NAVY
 };
 
 static constexpr TouchUiButton BUTTON_HOME = {
   TouchUiButtonId::Home,
-  242, 151, 70, 38,
+  242, 195, 70, 32,
   "CLOCK",
   TFT_DARKGREEN
 };
@@ -942,6 +948,7 @@ static constexpr const TouchUiButton *KEYBOARD_BUTTONS[] = {
 };
 
 static constexpr const TouchUiButton *DIAGNOSTIC_BUTTONS[] = {
+  &BUTTON_RECALIBRATE_TOUCH,
   &BUTTON_PRESSURE_DOWN,
   &BUTTON_PRESSURE_UP,
   &BUTTON_BACK,
@@ -4893,6 +4900,18 @@ void handleTouchUiButton(
       showTouchUiPage(
         TouchUiPage::MainMenu
       );
+      break;
+
+    case TouchUiButtonId::RecalibrateTouch:
+      runIntegratedTouchCalibration(false);
+
+      activeTouchUiPage =
+        TouchUiPage::Diagnostics;
+
+      touchUiLastActivityAt =
+        millis();
+
+      drawTouchUiDiagnostics();
       break;
 
     case TouchUiButtonId::PressureDown:

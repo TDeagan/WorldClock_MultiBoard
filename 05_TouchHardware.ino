@@ -34,6 +34,7 @@ uint8_t touchOppositeRotation(uint8_t rotation);
 String touchCalibrationKey(uint8_t rotation);
 String touchPressureKey();
 bool readTouchCalibration(uint8_t rotation, TouchCalibration &calibrationOut);
+bool writeTouchCalibration(const TouchCalibration &calibration);
 uint16_t loadTouchPressureMinimum();
 void saveTouchPressureMinimum(uint16_t value);
 int mapTouchRawAxis(int raw, int rawStart, int rawEnd, int screenMaximum);
@@ -127,6 +128,38 @@ bool readTouchCalibration(
       lcd.width() &&
     calibrationOut.screenHeight ==
       lcd.height();
+}
+
+bool writeTouchCalibration(
+  const TouchCalibration &calibration
+) {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      TOUCH_TEST_PREF_NAMESPACE,
+      false
+    )
+  ) {
+    return false;
+  }
+
+  const String key =
+    touchCalibrationKey(
+      calibration.rotation
+    );
+
+  const size_t storedBytes =
+    preferences.putBytes(
+      key.c_str(),
+      &calibration,
+      sizeof(calibration)
+    );
+
+  preferences.end();
+
+  return
+    storedBytes == sizeof(calibration);
 }
 
 uint16_t loadTouchPressureMinimum() {
@@ -353,8 +386,7 @@ bool initializeTouchHardware() {
 
   if (!touchCalibrationReadyFlag) {
     Serial.println(
-      "Touch calibration not found. Run the standalone "
-      "ESP32_MultiBoard_TouchTest on this board."
+      "Touch calibration not found. Integrated calibration required."
     );
   }
 
@@ -668,6 +700,75 @@ bool pollTouchEvent(
   }
 
   return false;
+}
+
+
+bool readRawTouchSample(
+  Xpt2046Sample &sampleOut
+) {
+  sampleOut = Xpt2046Sample{};
+
+  if (!touchHardwareInitialized) {
+    return false;
+  }
+
+  const bool contact =
+    worldClockTouch.read(sampleOut);
+
+  touchDiagnostics.contact = contact;
+  touchDiagnostics.accepted = false;
+  touchDiagnostics.rawX = sampleOut.rawX;
+  touchDiagnostics.rawY = sampleOut.rawY;
+  touchDiagnostics.pressure = sampleOut.pressure;
+  touchDiagnostics.screenX = -1;
+  touchDiagnostics.screenY = -1;
+
+  if (contact) {
+    touchDiagnostics.state =
+      sampleOut.pressed
+        ? "RAW"
+        : "LIGHT";
+  } else {
+    touchDiagnostics.state =
+      touchCalibrationReadyFlag
+        ? "UP"
+        : "NO CAL";
+  }
+
+  return contact;
+}
+
+
+bool saveTouchCalibrationForDisplayRotation(
+  const TouchCalibration &calibration
+) {
+  if (
+    !touchHardwareInitialized ||
+    calibration.magic !=
+      TOUCH_CALIBRATION_MAGIC ||
+    calibration.boardId !=
+      WORLDCLOCK_BOARD ||
+    calibration.rotation !=
+      effectiveDisplayRotation() ||
+    calibration.screenWidth !=
+      lcd.width() ||
+    calibration.screenHeight !=
+      lcd.height()
+  ) {
+    return false;
+  }
+
+  if (!writeTouchCalibration(calibration)) {
+    return false;
+  }
+
+  reloadTouchCalibrationForDisplayRotation();
+
+  return
+    touchCalibrationReadyFlag &&
+    !transformCalibrationBy180 &&
+    activeTouchCalibration.rotation ==
+      calibration.rotation;
 }
 
 

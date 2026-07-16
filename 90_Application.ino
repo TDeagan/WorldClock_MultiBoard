@@ -105,9 +105,18 @@ void initializeWorldClock() {
 
   showSplashScreen();
 
-  // Touch reuses calibration saved by the standalone touch-test app.
-  // Missing calibration does not prevent normal clock or browser operation.
+  // Reuse compatible standalone touch-test calibration when present. On a
+  // first boot without calibration, collect raw XPT2046 samples here before
+  // continuing automatically into normal Wi-Fi setup.
   initializeTouchUi();
+
+  if (
+    ACTIVE_BOARD.touchAvailable &&
+    touchHardwareIsReady() &&
+    !touchCalibrationIsReady()
+  ) {
+    runIntegratedTouchCalibration(true);
+  }
 
   Serial.printf(
     "Board profile: %s\n",

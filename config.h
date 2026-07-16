@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.0-alpha4.1";
+  "5.0-alpha5";
 
 // ============================================================
 // BOARD SELECTION
@@ -816,12 +816,17 @@ String buildMapMaintenancePage(const String &message = "", bool error = false);
 // Touchscreen hardware and event layer
 bool initializeTouchHardware();
 bool pollTouchEvent(TouchEvent &eventOut);
+bool readRawTouchSample(Xpt2046Sample &sampleOut);
+bool saveTouchCalibrationForDisplayRotation(
+  const TouchCalibration &calibration
+);
 bool touchHardwareIsReady();
 bool touchCalibrationIsReady();
 const TouchDiagnostics &getTouchDiagnostics();
 uint16_t getTouchPressureMinimum();
 void adjustTouchPressureMinimum(int delta);
 void reloadTouchCalibrationForDisplayRotation();
+bool runIntegratedTouchCalibration(bool firstBoot);
 
 // Touchscreen user interface
 void initializeTouchUi();

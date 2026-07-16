@@ -1,6 +1,6 @@
 #include "config.h"
 
-// World Clock v5.0-alpha4 — touchscreen Wi-Fi and keyboard integration.
+// World Clock v5.0-alpha5 — integrated touchscreen calibration.
 // Select the target board with WORLDCLOCK_BOARD in config.h.
 
 void setup() {
