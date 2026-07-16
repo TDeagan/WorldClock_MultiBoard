@@ -1,36 +1,161 @@
-// v4.2: drawClock() is invoked on aligned 30-second boundaries and after full redraws.
 // ============================================================
 // Clock display and configured network/time operation
 // ============================================================
+
+namespace {
+
+void removeLeadingZero(char *text) {
+  if (
+    text != nullptr &&
+    text[0] == '0'
+  ) {
+    memmove(
+      text,
+      text + 1,
+      strlen(text)
+    );
+  }
+}
+
+
+void startConfiguredNtp() {
+  const String posixRule =
+    configuredPosixTimeZone();
+
+  configTzTime(
+    posixRule.c_str(),
+    "pool.ntp.org",
+    "time.nist.gov",
+    "time.google.com"
+  );
+}
+
+} // namespace
+
+
+String configuredPosixTimeZone() {
+  switch (timeSettings.timeZone) {
+    case TimeZonePreset::UTC:
+      return "UTC0";
+
+    case TimeZonePreset::USEastern:
+      return "EST5EDT,M3.2.0/2,M11.1.0/2";
+
+    case TimeZonePreset::USCentral:
+      return "CST6CDT,M3.2.0/2,M11.1.0/2";
+
+    case TimeZonePreset::USMountain:
+      return "MST7MDT,M3.2.0/2,M11.1.0/2";
+
+    case TimeZonePreset::USPacific:
+      return "PST8PDT,M3.2.0/2,M11.1.0/2";
+
+    case TimeZonePreset::FixedOffset:
+    default:
+      break;
+  }
+
+  const int offsetMinutes =
+    networkSettings.utcOffsetMinutes;
+
+  if (offsetMinutes == 0) {
+    return "UTC0";
+  }
+
+  // POSIX TZ signs are opposite conventional UTC-offset notation.
+  const char posixSign =
+    offsetMinutes > 0 ? '-' : '+';
+
+  const int absoluteMinutes =
+    abs(offsetMinutes);
+
+  char rule[24];
+
+  snprintf(
+    rule,
+    sizeof(rule),
+    "UTC%c%d:%02d",
+    posixSign,
+    absoluteMinutes / 60,
+    absoluteMinutes % 60
+  );
+
+  return String(rule);
+}
+
+
+void applyConfiguredTimeZone() {
+  const String posixRule =
+    configuredPosixTimeZone();
+
+  setenv(
+    "TZ",
+    posixRule.c_str(),
+    1
+  );
+
+  tzset();
+}
+
 
 void drawClock() {
   if (!timeValid) {
     return;
   }
 
-  const time_t now = time(nullptr);
+  const time_t now =
+    time(nullptr);
 
   tm localTm {};
   tm utcTm {};
 
-  localtime_r(&now, &localTm);
-  gmtime_r(&now, &utcTm);
+  localtime_r(
+    &now,
+    &localTm
+  );
 
-  char localTime[16];
-  char utcTime[16];
+  gmtime_r(
+    &now,
+    &utcTm
+  );
+
+  char localTime[24];
+  char utcTime[24];
   char dateLine[32];
+
+  const char *localFormat =
+    timeSettings.use24Hour
+      ? (
+          timeSettings.showSeconds
+            ? "%H:%M:%S"
+            : "%H:%M"
+        )
+      : (
+          timeSettings.showSeconds
+            ? "%I:%M:%S %p"
+            : "%I:%M %p"
+        );
+
+  const char *utcFormat =
+    timeSettings.showSeconds
+      ? "UTC %H:%M:%S"
+      : "UTC %H:%M";
 
   strftime(
     localTime,
     sizeof(localTime),
-    "%H:%M",
+    localFormat,
     &localTm
   );
+
+  if (!timeSettings.use24Hour) {
+    removeLeadingZero(localTime);
+  }
 
   strftime(
     utcTime,
     sizeof(utcTime),
-    "UTC-%H:%M",
+    utcFormat,
     &utcTm
   );
 
@@ -49,11 +174,6 @@ void drawClock() {
     STATUS_BACKGROUND_COLOR
   );
 
-  lcd.setFont(&fonts::Font2);
-  lcd.setTextDatum(textdatum_t::middle_center);
-  lcd.setTextColor(STATUS_TEXT_COLOR, STATUS_BACKGROUND_COLOR);
-
-  // Local time intentionally has no location/time-zone label.
   const String line =
     String(localTime) +
     "  " +
@@ -61,15 +181,39 @@ void drawClock() {
     "  " +
     dateLine;
 
+  lcd.setFont(
+    &fonts::Font2
+  );
+
+  // Long 12-hour strings or seconds may exceed 320 pixels. Keep all
+  // information by falling back to the smallest built-in font.
+  if (
+    lcd.textWidth(line) >
+      SCREEN_W - 4
+  ) {
+    lcd.setFont(
+      &fonts::Font0
+    );
+  }
+
+  lcd.setTextDatum(
+    textdatum_t::middle_center
+  );
+
+  lcd.setTextColor(
+    STATUS_TEXT_COLOR,
+    STATUS_BACKGROUND_COLOR
+  );
+
   lcd.drawString(
     line,
     SCREEN_W / 2,
     CLOCK_TEXT_Y
   );
 
-  // Redraw the address after clearing the status bar.
   drawIpAddress();
 }
+
 
 bool connectConfiguredWiFi() {
   if (
@@ -95,11 +239,13 @@ bool connectConfiguredWiFi() {
     networkSettings.password.c_str()
   );
 
-  const unsigned long started = millis();
+  const unsigned long started =
+    millis();
 
   while (
     WiFi.status() != WL_CONNECTED &&
-    millis() - started < WIFI_CONNECT_TIMEOUT_MS
+    millis() - started <
+      WIFI_CONNECT_TIMEOUT_MS
   ) {
     delay(250);
   }
@@ -117,31 +263,22 @@ bool connectConfiguredWiFi() {
   return systemStatus.wifiConnected;
 }
 
+
 bool synchronizeConfiguredTime() {
   showStatus(
     "Synchronizing time",
-    "Using saved UTC offset"
+    timeZoneDisplayName()
   );
 
-  const long offsetSeconds =
-    static_cast<long>(
-      networkSettings.utcOffsetMinutes
-    ) * 60L;
+  startConfiguredNtp();
 
-  // A fixed UTC offset was requested, so daylight-saving time is zero.
-  configTime(
-    offsetSeconds,
-    0,
-    "pool.ntp.org",
-    "time.nist.gov",
-    "time.google.com"
-  );
-
-  const unsigned long started = millis();
+  const unsigned long started =
+    millis();
 
   while (
     time(nullptr) < 1700000000 &&
-    millis() - started < NTP_SYNC_TIMEOUT_MS
+    millis() - started <
+      NTP_SYNC_TIMEOUT_MS
   ) {
     delay(200);
   }
@@ -150,7 +287,8 @@ bool synchronizeConfiguredTime() {
     time(nullptr) >= 1700000000;
 
   if (systemStatus.ntpSynced) {
-    systemStatus.lastNtpSync = time(nullptr);
+    systemStatus.lastNtpSync =
+      time(nullptr);
   } else {
     setSystemError(
       SystemError::NtpUnavailable,
@@ -163,20 +301,10 @@ bool synchronizeConfiguredTime() {
 
 
 bool retryNtpSync() {
-  const long offsetSeconds =
-    static_cast<long>(
-      networkSettings.utcOffsetMinutes
-    ) * 60L;
+  startConfiguredNtp();
 
-  configTime(
-    offsetSeconds,
-    0,
-    "pool.ntp.org",
-    "time.nist.gov",
-    "time.google.com"
-  );
-
-  const unsigned long started = millis();
+  const unsigned long started =
+    millis();
 
   while (
     time(nullptr) < 1700000000 &&
@@ -189,12 +317,17 @@ bool retryNtpSync() {
     time(nullptr) >= 1700000000;
 
   if (systemStatus.ntpSynced) {
-    systemStatus.lastNtpSync = time(nullptr);
+    systemStatus.lastNtpSync =
+      time(nullptr);
+
     if (
       systemStatus.lastError ==
-      SystemError::NtpUnavailable
+        SystemError::NtpUnavailable
     ) {
-      setSystemError(SystemError::None, "");
+      setSystemError(
+        SystemError::None,
+        ""
+      );
     }
   } else {
     setSystemError(

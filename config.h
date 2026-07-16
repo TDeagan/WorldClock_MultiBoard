@@ -1,5 +1,8 @@
 #pragma once
 
+static constexpr const char *FIRMWARE_VERSION =
+  "5.0";
+
 // ============================================================
 // BOARD SELECTION
 // ============================================================
@@ -27,6 +30,8 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <esp_system.h>
+#include "XPT2046Soft.h"
 
 // ============================================================
 // TARGET BOARD
@@ -47,6 +52,15 @@ static constexpr int MOON_DISC_RADIUS = 6;
 // ISS is deliberately smaller than the Moon: a crisp 5 x 5 cyan plus.
 static constexpr int ISS_PLUS_ARM = 2;
 
+// Optional location/grid overlay appearance.
+static constexpr int LOCATION_GRID_STEP_DEGREES = 30;
+static constexpr uint16_t LOCATION_GRID_COLOR = 0x4208;
+static constexpr uint16_t LOCATION_AXIS_COLOR = 0xA514;
+static constexpr uint16_t HOME_MARKER_COLOR = TFT_MAGENTA;
+static constexpr uint16_t HOME_MARKER_CENTER_COLOR = TFT_WHITE;
+static constexpr int HOME_MARKER_RADIUS = 4;
+static constexpr int HOME_MARKER_ARM = 7;
+
 // ============================================================
 // BOARD HARDWARE ALIASES
 // ============================================================
@@ -65,6 +79,12 @@ static constexpr int SD_SCLK = ACTIVE_BOARD.sdSclk;
 static constexpr int SD_MISO = ACTIVE_BOARD.sdMiso;
 static constexpr int SD_MOSI = ACTIVE_BOARD.sdMosi;
 static constexpr int SD_CS   = ACTIVE_BOARD.sdCs;
+
+static constexpr int TOUCH_SCLK = ACTIVE_BOARD.touchSclk;
+static constexpr int TOUCH_MOSI = ACTIVE_BOARD.touchMosi;
+static constexpr int TOUCH_MISO = ACTIVE_BOARD.touchMiso;
+static constexpr int TOUCH_CS   = ACTIVE_BOARD.touchCs;
+static constexpr int TOUCH_IRQ  = ACTIVE_BOARD.touchIrq;
 
 static constexpr int CONFIG_BUTTON_PIN =
   ACTIVE_BOARD.configurationButtonPin;
@@ -90,9 +110,9 @@ static constexpr int STATUS_BAR_Y = SCREEN_MAP_H;
 static constexpr int STATUS_BAR_HEIGHT = STATUS_H;
 static constexpr int CLOCK_TEXT_Y = SCREEN_MAP_H + STATUS_H / 2 - 4;
 static constexpr int IP_TEXT_Y = 232;
-static constexpr int IP_BACKGROUND_X = 98;
+static constexpr int IP_BACKGROUND_X = 88;
 static constexpr int IP_BACKGROUND_Y = 232;
-static constexpr int IP_BACKGROUND_W = 124;
+static constexpr int IP_BACKGROUND_W = 144;
 static constexpr int IP_BACKGROUND_H = 8;
 static constexpr uint16_t STATUS_BACKGROUND_COLOR = TFT_BLACK;
 static constexpr uint16_t STATUS_TEXT_COLOR = TFT_CYAN;
@@ -104,20 +124,55 @@ static constexpr uint32_t RAW_MAP_BYTES =
 static constexpr int DISPLAY_ROTATION = ACTIVE_BOARD.displayRotation;
 
 // ============================================================
+// TOUCHSCREEN AND TOUCH UI
+// ============================================================
+
+// Calibration and pressure values are compatible with the standalone
+// ESP32_MultiBoard_TouchTest application. This lets Version 5 reuse the
+// calibration already saved in NVS on a tested board.
+static constexpr uint16_t TOUCH_CALIBRATION_MAGIC = 0x5A71;
+static constexpr const char *TOUCH_TEST_PREF_NAMESPACE = "touchtest";
+
+static constexpr unsigned long TOUCH_UI_INACTIVITY_MS = 60000UL;
+static constexpr unsigned long TOUCH_UI_DIAGNOSTICS_REFRESH_MS = 250UL;
+static constexpr int TOUCH_BUTTON_TRACK_MARGIN = 12;
+static constexpr uint8_t TOUCH_BUTTON_CANCEL_OUTSIDE_FRAMES = 3;
+static constexpr uint16_t TOUCH_PRESSURE_STEP = 20;
+static constexpr uint16_t TOUCH_PRESSURE_MINIMUM_ALLOWED = 0;
+static constexpr uint16_t TOUCH_PRESSURE_MAXIMUM_ALLOWED = 1200;
+
+// Touchscreen Wi-Fi configuration and reusable on-screen keyboard.
+static constexpr size_t TOUCH_NETWORK_MAX_RESULTS = 20;
+static constexpr size_t TOUCH_NETWORK_ROWS_PER_PAGE = 3;
+static constexpr unsigned long TOUCH_NETWORK_CONNECT_TIMEOUT_MS = 20000UL;
+static constexpr size_t TOUCH_NETWORK_SSID_MAX_LENGTH = 32;
+static constexpr size_t TOUCH_NETWORK_PASSWORD_MAX_LENGTH = 64;
+static constexpr size_t TOUCH_KEYBOARD_CELL_COUNT = 32;
+static constexpr size_t TOUCH_KEYBOARD_COLUMNS = 8;
+static constexpr size_t TOUCH_KEYBOARD_ROWS = 4;
+
+// ============================================================
 // SD-CARD FILENAMES
 // ============================================================
 
-static constexpr const char *DAY_PNG_FILE =
+static constexpr const char *DAY_MAP_DIRECTORY =
+  "/maps";
+
+static constexpr const char *DEFAULT_DAY_MAP_FILENAME =
+  "earth_day.png";
+
+// Retained only for one-time migration from older SD-card layouts.
+static constexpr const char *LEGACY_DAY_PNG_FILE =
   "/earth_day.png";
 
 static constexpr const char *NIGHT_PNG_FILE =
   "/earth_night.png";
 
-static constexpr const char *DAY_RAW_FILE =
-  "/earth_day.rgb565";
-
 static constexpr const char *NIGHT_RAW_FILE =
   "/earth_night.rgb565";
+
+static constexpr size_t MAX_DAYLIGHT_MAPS = 20;
+static constexpr size_t MAX_DAY_MAP_FILENAME_LENGTH = 80;
 
 // ============================================================
 // CAPTIVE PORTAL
@@ -134,11 +189,18 @@ static constexpr unsigned long PORTAL_RESTART_DELAY_MS = 1800UL;
 static constexpr uint16_t RUNTIME_CONFIG_PORT = 80;
 static constexpr const char *RUNTIME_CONFIG_PATH = "/";
 static constexpr const char *DIAGNOSTICS_PATH = "/diagnostics";
+static constexpr const char *TOUCH_RECALIBRATE_PATH =
+  "/diagnostics/recalibrate-touch";
 static constexpr const char *MAP_MAINTENANCE_PATH = "/maps";
 static constexpr const char *MAP_VALIDATE_PATH = "/maps/validate";
 static constexpr const char *MAP_REBUILD_DAY_PATH = "/maps/rebuild-day";
 static constexpr const char *MAP_REBUILD_NIGHT_PATH = "/maps/rebuild-night";
 static constexpr const char *MAP_REBUILD_BOTH_PATH = "/maps/rebuild-both";
+static constexpr const char *MAP_SELECT_PATH = "/maps/select";
+static constexpr const char *MAP_REBUILD_ONE_PATH = "/maps/rebuild-map";
+static constexpr const char *MAP_REBUILD_ALL_PATH = "/maps/rebuild-all";
+static constexpr const char *MAP_PREVIEW_PATH = "/maps/preview";
+static constexpr const char *MAP_NIGHT_PREVIEW_PATH = "/maps/night-preview";
 
 // ============================================================
 // PREFERENCES / NONVOLATILE STORAGE
@@ -173,6 +235,33 @@ static constexpr const char *PREF_KEY_SHOW_ISS_TRACK =
 
 static constexpr const char *PREF_KEY_ISS_TRACK_DOTTED =
   "trackDots";
+
+static constexpr const char *PREF_KEY_DISPLAY_FLIP_180 =
+  "flip180";
+
+static constexpr const char *PREF_KEY_TIME_ZONE_PRESET =
+  "tzPreset";
+
+static constexpr const char *PREF_KEY_CLOCK_24_HOUR =
+  "clock24";
+
+static constexpr const char *PREF_KEY_SHOW_SECONDS =
+  "showSecs";
+
+static constexpr const char *PREF_KEY_HOME_LATITUDE =
+  "homeLat";
+
+static constexpr const char *PREF_KEY_HOME_LONGITUDE =
+  "homeLon";
+
+static constexpr const char *PREF_KEY_SHOW_HOME_MARKER =
+  "showHome";
+
+static constexpr const char *PREF_KEY_SHOW_COORDINATE_GRID =
+  "showGrid";
+
+static constexpr const char *PREF_KEY_SELECTED_DAY_MAP =
+  "dayMap";
 
 static constexpr int MIN_UTC_OFFSET_MINUTES =
   -12 * 60;
@@ -224,8 +313,6 @@ static constexpr unsigned long NTP_RETRY_MS =
 static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
 
-static constexpr const char *FIRMWARE_VERSION =
-  "4.2";
 
 // ============================================================
 // STARTUP SPLASH
@@ -296,6 +383,44 @@ struct OverlaySettings {
   bool issTrackDotted = false;
 };
 
+struct DisplaySettings {
+  bool flip180 = false;
+};
+
+struct LocationGridSettings {
+  double homeLatitude = 0.0;
+  double homeLongitude = 0.0;
+  bool showHomeMarker = false;
+  bool showCoordinateGrid = false;
+};
+
+struct DaylightMapInfo {
+  String filename;
+  String pngPath;
+  String rawPath;
+  uint32_t pngBytes = 0;
+  uint32_t rawBytes = 0;
+  bool pngValid = false;
+  bool cacheValid = false;
+  bool selected = false;
+};
+
+enum class TimeZonePreset : uint8_t {
+  FixedOffset = 0,
+  UTC = 1,
+  USEastern = 2,
+  USCentral = 3,
+  USMountain = 4,
+  USPacific = 5
+};
+
+struct TimeSettings {
+  // FixedOffset preserves the behavior of older firmware after upgrade.
+  TimeZonePreset timeZone = TimeZonePreset::FixedOffset;
+  bool use24Hour = true;
+  bool showSeconds = false;
+};
+
 struct IssPosition {
   double latitude = 0.0;
   double longitude = 0.0;
@@ -341,6 +466,63 @@ struct SystemStatus {
   String lastErrorText;
 };
 
+struct RenderState {
+  time_t epoch = 0;
+  bool fullRedrawInProgress = false;
+  bool baseLayerDrawn = false;
+  bool overlayLayersDrawn = false;
+  bool statusLayerDrawn = false;
+};
+
+struct TouchCalibration {
+  uint16_t magic = TOUCH_CALIBRATION_MAGIC;
+  uint8_t boardId = WORLDCLOCK_BOARD;
+  uint8_t rotation = 0;
+  uint16_t screenWidth = 0;
+  uint16_t screenHeight = 0;
+  int16_t rawLeft = 0;
+  int16_t rawRight = 4095;
+  int16_t rawTop = 0;
+  int16_t rawBottom = 4095;
+  bool swapXY = false;
+};
+
+enum class TouchEventType : uint8_t {
+  None,
+  Down,
+  Move,
+  Up
+};
+
+struct TouchEvent {
+  TouchEventType type = TouchEventType::None;
+  int x = -1;
+  int y = -1;
+  uint16_t rawX = 0;
+  uint16_t rawY = 0;
+  uint16_t pressure = 0;
+  unsigned long durationMs = 0;
+};
+
+struct TouchDiagnostics {
+  bool hardwareAvailable = false;
+  bool initialized = false;
+  bool calibrationReady = false;
+  bool usingOppositeRotationCalibration = false;
+  bool contact = false;
+  bool accepted = false;
+  uint8_t activeRotation = 0;
+  uint8_t calibrationRotation = 0;
+  uint16_t pressureMinimum = 0;
+  uint16_t rawX = 0;
+  uint16_t rawY = 0;
+  uint16_t pressure = 0;
+  int screenX = -1;
+  int screenY = -1;
+  const char *state = "OFF";
+};
+
+
 // ============================================================
 // SHARED OBJECTS AND STATE
 // ============================================================
@@ -362,6 +544,11 @@ extern uint16_t pngLine[MAP_W];
 extern bool timeValid;
 extern bool sdReady;
 extern bool pngWriteFailed;
+extern bool pngValidationOnly;
+
+extern String selectedDayMapFilename;
+extern String activeDayPngPath;
+extern String activeDayRawPath;
 
 extern unsigned long lastMapUpdate;
 extern unsigned long lastClockUpdate;
@@ -371,10 +558,14 @@ extern unsigned long lastIssUpdate;
 
 extern NetworkSettings networkSettings;
 extern OverlaySettings overlaySettings;
+extern DisplaySettings displaySettings;
+extern LocationGridSettings locationGridSettings;
+extern TimeSettings timeSettings;
 extern IssPosition issPosition;
 extern OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];
 extern bool issTrackValid;
 extern SystemStatus systemStatus;
+extern RenderState renderState;
 extern unsigned long lastNtpRetry;
 
 // ============================================================
@@ -387,9 +578,48 @@ void serviceWorldClock();
 void updateAstronomy();
 void showSplashScreen();
 void drawIpAddress();
+
+// Rendering engine
+bool renderWorldDisplay();
+void renderOverlayLayers(time_t epoch);
+void renderStatusBar();
 void redrawWorldClock();
 void setSystemError(SystemError error, const String &text);
 const char *systemErrorName(SystemError error);
+
+uint8_t effectiveDisplayRotation();
+void applyDisplayRotation();
+const char *displayOrientationName();
+String formatUptime(unsigned long uptimeMs);
+String formatAge(time_t stamp);
+String formatElapsedAge(unsigned long stampMs);
+const char *resetReasonName(esp_reset_reason_t reason);
+
+// Time-zone and clock-display preferences
+bool timeZonePresetIsValid(uint8_t value);
+const char *timeZonePresetName(TimeZonePreset preset);
+String formatUtcOffsetMinutes(int offsetMinutes);
+String timeZoneDisplayName();
+const char *clockFormatName();
+time_t clockUpdateIntervalSeconds();
+String configuredPosixTimeZone();
+void applyConfiguredTimeZone();
+
+// Home-location and coordinate-grid helpers
+bool parseCoordinateValue(
+  const String &text,
+  double minimum,
+  double maximum,
+  double &valueOut
+);
+
+String formatCoordinateInput(double value);
+String formatLatitude(double latitude);
+String formatLongitude(double longitude);
+String formatHomeLocation();
+
+void renderCoordinateGridOverlay();
+void renderHomeLocationOverlay();
 
 // Internal math/map helpers
 static double norm180(double x);
@@ -433,6 +663,25 @@ int32_t pngSeekCallback(
 int pngDrawCallback(PNGDRAW *draw);
 
 bool rawMapIsValid(const char *path);
+bool pngMapIsValid(const char *path, bool fullDecode = false);
+bool renderPngPreview(const char *path, int topY, int height);
+
+bool isSafeDayMapFilename(const String &filename);
+String dayMapPngPath(const String &filename);
+String dayMapCachePath(const String &filename);
+size_t scanDaylightMaps(
+  DaylightMapInfo *maps,
+  size_t maximumCount,
+  bool fullValidation = false,
+  size_t *totalCountOut = nullptr
+);
+
+bool loadSelectedDayMapPreference();
+bool saveSelectedDayMapPreference(const String &filename);
+bool ensureSelectedDayMapAvailable(bool persistFallback = true);
+bool activateDayMap(const String &filename, bool rebuildCache = false);
+bool rebuildDayMapCache(const String &filename);
+bool rebuildAllDayMapCaches();
 
 bool convertPngToRaw(
   const char *pngPath,
@@ -470,6 +719,7 @@ uint16_t blend565(
 );
 
 bool drawMap(const tm &utc);
+bool renderBaseMapLayer(time_t epoch);
 
 // Sun and Moon
 void calculateMoonInfo(
@@ -489,11 +739,18 @@ void drawWrappedMoonPhase(
   bool waxing
 );
 
+void renderSunOverlay(time_t epoch);
+void renderMoonOverlay(time_t epoch);
+void renderCelestialOverlays(time_t epoch);
+
+// Compatibility entry point retained for existing code.
 void drawCelestialMarkers(time_t epoch);
 
 // ISS
 bool fetchIssPosition();
 void drawIssMarker();
+void renderIssOverlay();
+void renderIssTrackOverlay();
 
 // ISS one-orbit track
 void calculateIssOrbitTrack();
@@ -516,6 +773,35 @@ bool saveNetworkSettings(
 
 bool loadOverlaySettings();
 bool saveOverlaySettings();
+bool loadDisplaySettings();
+bool saveDisplaySettings();
+bool loadTimeSettings();
+bool saveTimeSettings();
+bool loadLocationGridSettings();
+bool saveLocationGridSettings();
+
+// Shared settings controller used by browser and touchscreen interfaces.
+bool saveUtcOffsetPreference(int offsetMinutes);
+bool applyTimeDisplaySettings(
+  const TimeSettings &requestedTime,
+  int requestedUtcOffsetMinutes,
+  const DisplaySettings &requestedDisplay,
+  bool &timeZoneChangedOut,
+  bool &clockDisplayChangedOut,
+  bool &orientationChangedOut
+);
+bool applyLocationSettings(
+  const LocationGridSettings &requestedLocation
+);
+bool applyOverlaySettings(
+  const OverlaySettings &requestedOverlays
+);
+bool applyTouchNetworkSettings(
+  const String &requestedSsid,
+  const String &requestedPassword,
+  String &messageOut
+);
+bool clearSavedWifiCredentials();
 
 void clearNetworkSettings();
 void serviceConfigurationButton();
@@ -528,3 +814,28 @@ void startRuntimeConfigServer();
 void serviceRuntimeConfigServer();
 String buildDiagnosticsPage();
 String buildMapMaintenancePage(const String &message = "", bool error = false);
+
+// Touchscreen hardware and event layer
+bool initializeTouchHardware();
+bool pollTouchEvent(TouchEvent &eventOut);
+bool readRawTouchSample(Xpt2046Sample &sampleOut);
+bool saveTouchCalibrationForDisplayRotation(
+  const TouchCalibration &calibration
+);
+bool touchHardwareIsReady();
+bool touchCalibrationIsReady();
+bool touchCalibrationWasBypassed();
+bool setTouchCalibrationBypassed(bool bypassed);
+const TouchDiagnostics &getTouchDiagnostics();
+uint16_t getTouchPressureMinimum();
+void adjustTouchPressureMinimum(int delta);
+void reloadTouchCalibrationForDisplayRotation();
+bool runIntegratedTouchCalibration(bool firstBoot);
+
+// Touchscreen user interface
+void initializeTouchUi();
+void serviceTouchUi();
+bool touchUiIsOpen();
+void closeTouchUi(bool redrawClock = true);
+void touchUiHandleDisplayRotationChanged();
+

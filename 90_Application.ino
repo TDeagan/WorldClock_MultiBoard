@@ -36,7 +36,7 @@ void markCurrentSchedulerBuckets() {
   lastClockBucket =
     schedulerBucket(
       now,
-      CLOCK_UPDATE_SECONDS
+      clockUpdateIntervalSeconds()
     );
 
   lastAstronomyBucket =
@@ -81,39 +81,7 @@ void updateAstronomy() {
   }
 }
 
-void redrawWorldClock() {
-  if (
-    !timeValid ||
-    !sdReady
-  ) {
-    return;
-  }
 
-  const time_t now =
-    time(nullptr);
-
-  tm utcTm {};
-  gmtime_r(&now, &utcTm);
-
-  if (!drawMap(utcTm)) {
-    sdReady = false;
-
-    setSystemError(
-      SystemError::SdUnavailable,
-      "Map scanline read failed"
-    );
-
-    return;
-  }
-
-  // One coordinated drawing pipeline for every full display refresh.
-  drawIssOrbitTrack();
-  drawCelestialMarkers(now);
-  drawIssMarker();
-  drawClock();
-
-  lastMapUpdate = millis();
-}
 
 void initializeWorldClock() {
   Serial.begin(115200);
@@ -126,13 +94,30 @@ void initializeWorldClock() {
       : LOW
   );
 
+  // Load orientation before drawing the startup splash.
+  loadDisplaySettings();
+
   lcd.init();
-  lcd.setRotation(DISPLAY_ROTATION);
+  applyDisplayRotation();
   lcd.setColorDepth(16);
   lcd.setSwapBytes(true);
   lcd.fillScreen(TFT_BLACK);
 
   showSplashScreen();
+
+  // Reuse compatible standalone touch-test calibration when present. On a
+  // first boot without calibration, collect raw XPT2046 samples here before
+  // continuing automatically into normal Wi-Fi setup.
+  initializeTouchUi();
+
+  if (
+    ACTIVE_BOARD.touchAvailable &&
+    touchHardwareIsReady() &&
+    !touchCalibrationIsReady() &&
+    !touchCalibrationWasBypassed()
+  ) {
+    runIntegratedTouchCalibration(true);
+  }
 
   Serial.printf(
     "Board profile: %s\n",
@@ -145,9 +130,33 @@ void initializeWorldClock() {
     lcd.height()
   );
 
+  Serial.printf(
+    "Display orientation: %s; rotation %u\n",
+    displayOrientationName(),
+    effectiveDisplayRotation()
+  );
+
   if (!ensureNetworkConfigured()) {
     return;
   }
+
+  Serial.printf(
+    "Time zone: %s; clock: %s; seconds: %s\n",
+    timeZoneDisplayName().c_str(),
+    clockFormatName(),
+    timeSettings.showSeconds ? "shown" : "hidden"
+  );
+
+  Serial.printf(
+    "Home marker: %s at %s; coordinate grid: %s\n",
+    locationGridSettings.showHomeMarker
+      ? "shown"
+      : "hidden",
+    formatHomeLocation().c_str(),
+    locationGridSettings.showCoordinateGrid
+      ? "shown"
+      : "hidden"
+  );
 
   startRuntimeConfigServer();
   systemStatus.wifiConnected = true;
@@ -195,6 +204,7 @@ void initializeWorldClock() {
 void serviceWorldClock() {
   serviceConfigurationButton();
   serviceRuntimeConfigServer();
+  serviceTouchUi();
 
   const unsigned long nowMs =
     millis();
@@ -275,6 +285,14 @@ void serviceWorldClock() {
     }
   }
 
+  // While a touch page is open, keep Wi-Fi, the web server, configuration
+  // button, and recovery services alive, but do not let scheduled clock/map
+  // painting overwrite the touchscreen interface.
+  if (touchUiIsOpen()) {
+    delay(10);
+    return;
+  }
+
   if (
     !timeValid ||
     !sdReady
@@ -289,7 +307,7 @@ void serviceWorldClock() {
   const time_t clockBucket =
     schedulerBucket(
       now,
-      CLOCK_UPDATE_SECONDS
+      clockUpdateIntervalSeconds()
     );
 
   const time_t astronomyBucket =
@@ -327,7 +345,7 @@ void serviceWorldClock() {
     lastClockBucket =
       clockBucket;
 
-    drawClock();
+    renderStatusBar();
     lastClockUpdate = nowMs;
   }
 

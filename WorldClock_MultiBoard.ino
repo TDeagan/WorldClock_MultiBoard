@@ -1,6 +1,6 @@
 #include "config.h"
 
-// World Clock v4.0 — behavior-preserving multi-board build.
+// World Clock v5.0 — integrated touchscreen calibration.
 // Select the target board with WORLDCLOCK_BOARD in config.h.
 
 void setup() {

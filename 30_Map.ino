@@ -1,4 +1,4 @@
-// v4.2: drawMap() is invoked only by the unified full-display scheduler.
+// v4.3: drawMap() renders only the base Earth/terminator layer.
 void solarPositionUTC(
   const tm &utc,
   double &declination,
@@ -198,4 +198,11 @@ bool drawMap(const tm &utc) {
   }
 
   return true;
+}
+
+bool renderBaseMapLayer(time_t epoch) {
+  tm utcTm {};
+  gmtime_r(&epoch, &utcTm);
+
+  return drawMap(utcTm);
 }

@@ -1,33 +1,34 @@
-World Clock v4.2 unified-scheduler patch
+World Clock v4.7 patch
 
-Replace these four files in the working v4.1 project:
+Starting point:
+  Working v4.6 firmware
 
-  config.h
-  30_Map.ino
-  50_ClockNetwork.ino
-  90_Application.ino
+New map-library features:
+  - Scans /maps for daylight .png files
+  - Uses one shared /earth_night.png
+  - Creates /maps/<day-map-name>.rgb565 for each daylight map
+  - Stores the selected daylight filename in Preferences
+  - Falls back to earth_day.png, then the first valid map, if selected file is missing
+  - Streams thumbnail previews from the original PNG files
+  - Adds per-map Select and apply controls
+  - Shows PNG validation and RGB565 cache status for each map
+  - Adds per-map, all-daylight, shared-night, and all-cache rebuild controls
+  - Migrates legacy /earth_day.png into /maps/earth_day.png when needed
 
-Behavior:
+Location-entry changes:
+  - Latitude selector: North (+) or South (-)
+  - Longitude selector: East (+) or West (-)
+  - Magnitude-only numeric fields optimized for mobile decimal keyboards
+  - Same controls in first-time setup and normal runtime Settings
 
-  Clock/status update:
-    every 30 seconds, aligned to :00 and :30
+SD-card layout:
+  /maps/earth_day.png
+  /maps/earth_day_political.png
+  /earth_night.png
 
-  Full astronomy update:
-    every 5 minutes, aligned to :00, :05, :10, etc.
+Generated automatically:
+  /maps/earth_day.rgb565
+  /maps/earth_day_political.rgb565
+  /earth_night.rgb565
 
-Each full update performs one coordinated operation:
-
-  1. Fetch current ISS position, when ISS or track is enabled
-  2. Recalculate ISS track
-  3. Recalculate and draw the terminator
-  4. Draw ISS track
-  5. Recalculate and draw Sun and Moon
-  6. Draw ISS marker
-  7. Draw clock and IP address
-
-The prior independent 20-second ISS and 60-second map redraw schedules are no
-longer used by the application loop.
-
-Wi-Fi, NTP, and storage recovery retries remain on their original schedules.
-This allows failures to recover promptly without waiting for a five-minute
-display boundary.
+All map PNGs must be non-interlaced 320 x 240 equirectangular images.

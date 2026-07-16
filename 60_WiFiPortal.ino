@@ -122,6 +122,28 @@ bool parseUtcOffset(
   return true;
 }
 
+bool parseTimeZonePresetPortal(
+  const String &text,
+  TimeZonePreset &presetOut
+) {
+  const int value =
+    text.toInt();
+
+  if (
+    !timeZonePresetIsValid(
+      static_cast<uint8_t>(value)
+    )
+  ) {
+    return false;
+  }
+
+  presetOut =
+    static_cast<TimeZonePreset>(value);
+
+  return true;
+}
+
+
 String buildNetworkOptions() {
   showStatus(
     "Scanning Wi-Fi",
@@ -205,13 +227,13 @@ String configurationPage(
   bool isError = false
 ) {
   String page;
-  page.reserve(7800);
+  page.reserve(11000);
 
   page += F(
     "<!doctype html><html><head>"
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
     "<meta charset=\"utf-8\">"
-    "<title>E32R28T World Clock Setup</title>"
+    "<title>World Clock Setup</title>"
     "<style>"
     "body{font-family:Arial,sans-serif;background:#101820;color:#f2f4f7;"
     "margin:0;padding:20px}"
@@ -223,18 +245,23 @@ String configurationPage(
     "border:1px solid #667;background:#fff;color:#111;font-size:1rem}"
     "button{width:100%;margin-top:22px;padding:12px;border:0;border-radius:8px;"
     "background:#ffd43b;color:#111;font-size:1.05rem;font-weight:bold}"
-    ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}"".row{display:flex;gap:10px}.sign{width:86px;flex:0 0 86px}"".grow{flex:1}.check{display:flex;align-items:center;gap:8px;margin-top:10px;""font-weight:normal}.check input{width:auto;margin:0}"
+    ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}"
+    ".row{display:flex;gap:10px}.sign{width:86px;flex:0 0 86px}.hemisphere{width:125px;flex:0 0 125px}"
+    ".grow{flex:1}.check{display:flex;align-items:center;gap:8px;margin-top:10px;"
+    "font-weight:normal}.check input{width:auto;margin:0}"
     ".msg{padding:10px;border-radius:7px;margin-bottom:12px;background:#24435a}"
     ".err{background:#6b2632}"
     "</style></head><body><div class=\"card\">"
-    "<h1>E32R28T World Clock Setup</h1>"
+    "<h1>World Clock Setup</h1>"
   );
 
   if (message.length()) {
     page += F("<div class=\"msg");
+
     if (isError) {
       page += F(" err");
     }
+
     page += F("\">");
     page += htmlEscape(message);
     page += F("</div>");
@@ -259,7 +286,34 @@ String configurationPage(
     "<label class=\"check\"><input id=\"showPassword\" type=\"checkbox\" "
     "onclick=\"document.getElementById('password').type=this.checked?'text':'password'\">"
     "Show password</label>"
-    "<label>UTC offset in hours</label>"
+    "<label>Time zone</label>"
+    "<select name=\"timeZone\">"
+  );
+
+  for (
+    uint8_t value = 0;
+    value <= static_cast<uint8_t>(TimeZonePreset::USPacific);
+    ++value
+  ) {
+    const TimeZonePreset preset =
+      static_cast<TimeZonePreset>(value);
+
+    page += F("<option value=\"");
+    page += String(value);
+    page += F("\"");
+
+    if (timeSettings.timeZone == preset) {
+      page += F(" selected");
+    }
+
+    page += F(">");
+    page += timeZonePresetName(preset);
+    page += F("</option>");
+  }
+
+  page += F(
+    "</select>"
+    "<label>Fixed UTC offset in hours</label>"
     "<div class=\"row\">"
     "<select class=\"sign\" id=\"offsetSign\" name=\"offsetSign\">"
     "<option value=\"+\""
@@ -290,10 +344,121 @@ String configurationPage(
 
   page += F(
     "\"></div>"
-    "<p class=\"note\">Examples: choose - and enter 5 for UTC-5; "
-    "choose + and enter 5.5 for UTC+5:30. "
-    "This is a fixed UTC offset and does not automatically change for "
-    "daylight-saving time.</p>"
+    "<p class=\"note\">The fixed offset is used only when Fixed UTC offset "
+    "is selected. US presets apply daylight-saving time automatically.</p>"
+    "<label>Clock format</label>"
+    "<select name=\"use24Hour\">"
+    "<option value=\"1\""
+  );
+
+  if (timeSettings.use24Hour) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">24-hour</option><option value=\"0\""
+  );
+
+  if (!timeSettings.use24Hour) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">12-hour</option></select>"
+    "<label class=\"check\"><input type=\"checkbox\" name=\"showSeconds\" value=\"1\""
+  );
+
+  if (timeSettings.showSeconds) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show seconds</label>"
+    "<label>Home location and grid</label>"
+    "<label>Latitude</label>"
+    "<div class=\"row\">"
+    "<select class=\"hemisphere\" name=\"homeLatitudeSign\">"
+    "<option value=\"+\""
+  );
+
+  if (locationGridSettings.homeLatitude >= 0.0) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">North (+)</option><option value=\"-\""
+  );
+
+  if (locationGridSettings.homeLatitude < 0.0) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">South (-)</option></select>"
+    "<input class=\"grow\" name=\"homeLatitudeMagnitude\" "
+    "type=\"number\" min=\"0\" max=\"90\" step=\"any\" "
+    "inputmode=\"decimal\" required value=\""
+  );
+
+  page += formatCoordinateInput(
+    fabs(locationGridSettings.homeLatitude)
+  );
+
+  page += F(
+    "\"></div>"
+    "<label>Longitude</label>"
+    "<div class=\"row\">"
+    "<select class=\"hemisphere\" name=\"homeLongitudeSign\">"
+    "<option value=\"+\""
+  );
+
+  if (locationGridSettings.homeLongitude >= 0.0) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">East (+)</option><option value=\"-\""
+  );
+
+  if (locationGridSettings.homeLongitude < 0.0) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">West (-)</option></select>"
+    "<input class=\"grow\" name=\"homeLongitudeMagnitude\" "
+    "type=\"number\" min=\"0\" max=\"180\" step=\"any\" "
+    "inputmode=\"decimal\" required value=\""
+  );
+
+  page += formatCoordinateInput(
+    fabs(locationGridSettings.homeLongitude)
+  );
+
+  page += F(
+    "\"></div>"
+    "<label class=\"check\"><input type=\"checkbox\" "
+    "name=\"showHomeMarker\" value=\"1\""
+  );
+
+  if (locationGridSettings.showHomeMarker) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show home-location marker</label>"
+    "<label class=\"check\"><input type=\"checkbox\" "
+    "name=\"showCoordinateGrid\" value=\"1\""
+  );
+
+  if (locationGridSettings.showCoordinateGrid) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Show 30-degree coordinate grid</label>"
+    "<p class=\"note\">The Equator and Prime Meridian are emphasized. "
+    "Coordinates use decimal degrees.</p>"
     "<label>Map overlays</label>"
     "<label class=\"check\"><input type=\"checkbox\" name=\"showSun\" value=\"1\""
   );
@@ -372,8 +537,6 @@ void handleConfigurationSave() {
   const String password =
     portalServer.arg("password");
 
-  int offsetMinutes = 0;
-
   if (ssid.length() == 0) {
     portalServer.send(
       400,
@@ -411,28 +574,71 @@ void handleConfigurationSave() {
     return;
   }
 
-  const String sign =
-    portalServer.arg("offsetSign");
+  const int offsetMinutes =
+    portalServer.arg("offsetSign") == "-"
+      ? -magnitudeMinutes
+      : magnitudeMinutes;
 
-  offsetMinutes =
-    sign == "-"
-    ? -magnitudeMinutes
-    : magnitudeMinutes;
+  TimeZonePreset requestedTimeZone;
 
   if (
-    offsetMinutes < MIN_UTC_OFFSET_MINUTES ||
-    offsetMinutes > MAX_UTC_OFFSET_MINUTES
+    !parseTimeZonePresetPortal(
+      portalServer.arg("timeZone"),
+      requestedTimeZone
+    )
   ) {
     portalServer.send(
       400,
       "text/html",
       configurationPage(
-        "The selected UTC offset is outside the allowed range.",
+        "Select a valid time zone.",
         true
       )
     );
     return;
   }
+
+  double requestedHomeLatitude = 0.0;
+  double requestedHomeLongitude = 0.0;
+
+  double latitudeMagnitude = 0.0;
+  double longitudeMagnitude = 0.0;
+
+  if (
+    !parseCoordinateValue(
+      portalServer.arg("homeLatitudeMagnitude"),
+      0.0,
+      90.0,
+      latitudeMagnitude
+    ) ||
+    !parseCoordinateValue(
+      portalServer.arg("homeLongitudeMagnitude"),
+      0.0,
+      180.0,
+      longitudeMagnitude
+    )
+  ) {
+    portalServer.send(
+      400,
+      "text/html",
+      configurationPage(
+        "Enter a latitude magnitude from 0 through 90 and a longitude "
+        "magnitude from 0 through 180.",
+        true
+      )
+    );
+    return;
+  }
+
+  requestedHomeLatitude =
+    portalServer.arg("homeLatitudeSign") == "-"
+      ? -latitudeMagnitude
+      : latitudeMagnitude;
+
+  requestedHomeLongitude =
+    portalServer.arg("homeLongitudeSign") == "-"
+      ? -longitudeMagnitude
+      : longitudeMagnitude;
 
   if (
     !saveNetworkSettings(
@@ -445,12 +651,21 @@ void handleConfigurationSave() {
       500,
       "text/html",
       configurationPage(
-        "The settings could not be saved.",
+        "The network settings could not be saved.",
         true
       )
     );
     return;
   }
+
+  timeSettings.timeZone =
+    requestedTimeZone;
+
+  timeSettings.use24Hour =
+    portalServer.arg("use24Hour") != "0";
+
+  timeSettings.showSeconds =
+    portalServer.hasArg("showSeconds");
 
   overlaySettings.showSun =
     portalServer.hasArg("showSun");
@@ -467,12 +682,37 @@ void handleConfigurationSave() {
   overlaySettings.issTrackDotted =
     portalServer.hasArg("issTrackDotted");
 
-  if (!saveOverlaySettings()) {
+  locationGridSettings.homeLatitude =
+    requestedHomeLatitude;
+
+  locationGridSettings.homeLongitude =
+    requestedHomeLongitude;
+
+  locationGridSettings.showHomeMarker =
+    portalServer.hasArg("showHomeMarker");
+
+  locationGridSettings.showCoordinateGrid =
+    portalServer.hasArg("showCoordinateGrid");
+
+  const bool timeSaved =
+    saveTimeSettings();
+
+  const bool overlaysSaved =
+    saveOverlaySettings();
+
+  const bool locationSaved =
+    saveLocationGridSettings();
+
+  if (
+    !timeSaved ||
+    !overlaysSaved ||
+    !locationSaved
+  ) {
     portalServer.send(
       500,
       "text/html",
       configurationPage(
-        "The overlay settings could not be saved.",
+        "The clock preferences could not be saved.",
         true
       )
     );
@@ -753,9 +993,13 @@ void runConfigurationPortal() {
   const IPAddress portalIp =
     WiFi.softAPIP();
 
+  const String portalUrl =
+    String("http://") +
+    portalIp.toString();
+
   showStatus(
     portalApSsid,
-    portalIp.toString()
+    portalUrl
   );
 
   portalNetworkOptions = buildNetworkOptions();
@@ -763,7 +1007,7 @@ void runConfigurationPortal() {
   // Return the screen to the AP name after scanning.
   showStatus(
     portalApSsid,
-    portalIp.toString()
+    portalUrl
   );
 
   portalDns.start(
@@ -821,7 +1065,46 @@ void runConfigurationPortal() {
 
   portalServer.begin();
 
+  initializeTouchUi();
+
+  bool portalTouchWasOpen =
+    touchUiIsOpen();
+
   while (true) {
+  serviceTouchUi();
+
+  const bool portalTouchIsOpen =
+    touchUiIsOpen();
+
+  if (
+    portalTouchWasOpen &&
+    !portalTouchIsOpen &&
+    !portalSaveComplete
+  ) {
+    showStatus(
+      portalApSsid,
+      portalUrl
+    );
+  }
+
+  portalTouchWasOpen =
+    portalTouchIsOpen;
+
+  if (
+    !portalSaveComplete &&
+    networkSettings.configured &&
+    WiFi.status() == WL_CONNECTED
+  ) {
+    showStatus(
+      "Wi-Fi saved",
+      "Restarting..."
+    );
+
+    portalSaveComplete = true;
+    portalRestartAt =
+      millis() + PORTAL_RESTART_DELAY_MS;
+  }
+
     portalDns.processNextRequest();
     portalServer.handleClient();
 
@@ -842,6 +1125,8 @@ void runConfigurationPortal() {
 
 bool ensureNetworkConfigured() {
   loadOverlaySettings();
+  loadTimeSettings();
+  loadLocationGridSettings();
   loadNetworkSettings();
 
   if (!networkSettings.configured) {
@@ -947,3 +1232,235 @@ bool saveOverlaySettings() {
   preferences.end();
   return ok;
 }
+
+
+bool loadDisplaySettings() {
+  Preferences preferences;
+
+  if (!preferences.begin(PREF_NAMESPACE, true)) {
+    displaySettings.flip180 = false;
+    return false;
+  }
+
+  displaySettings.flip180 =
+    preferences.getBool(
+      PREF_KEY_DISPLAY_FLIP_180,
+      false
+    );
+
+  preferences.end();
+  return true;
+}
+
+
+bool saveDisplaySettings() {
+  Preferences preferences;
+
+  if (!preferences.begin(PREF_NAMESPACE, false)) {
+    return false;
+  }
+
+  const bool ok =
+    preferences.putBool(
+      PREF_KEY_DISPLAY_FLIP_180,
+      displaySettings.flip180
+    ) > 0;
+
+  preferences.end();
+  return ok;
+}
+
+
+bool loadTimeSettings() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      PREF_NAMESPACE,
+      true
+    )
+  ) {
+    timeSettings = TimeSettings();
+    return false;
+  }
+
+  const uint8_t presetValue =
+    preferences.getUChar(
+      PREF_KEY_TIME_ZONE_PRESET,
+      static_cast<uint8_t>(
+        TimeZonePreset::FixedOffset
+      )
+    );
+
+  timeSettings.timeZone =
+    timeZonePresetIsValid(presetValue)
+      ? static_cast<TimeZonePreset>(presetValue)
+      : TimeZonePreset::FixedOffset;
+
+  timeSettings.use24Hour =
+    preferences.getBool(
+      PREF_KEY_CLOCK_24_HOUR,
+      true
+    );
+
+  timeSettings.showSeconds =
+    preferences.getBool(
+      PREF_KEY_SHOW_SECONDS,
+      false
+    );
+
+  preferences.end();
+  return true;
+}
+
+
+bool saveTimeSettings() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      PREF_NAMESPACE,
+      false
+    )
+  ) {
+    return false;
+  }
+
+  const bool presetSaved =
+    preferences.putUChar(
+      PREF_KEY_TIME_ZONE_PRESET,
+      static_cast<uint8_t>(
+        timeSettings.timeZone
+      )
+    ) > 0;
+
+  const bool formatSaved =
+    preferences.putBool(
+      PREF_KEY_CLOCK_24_HOUR,
+      timeSettings.use24Hour
+    ) > 0;
+
+  const bool secondsSaved =
+    preferences.putBool(
+      PREF_KEY_SHOW_SECONDS,
+      timeSettings.showSeconds
+    ) > 0;
+
+  preferences.end();
+
+  return
+    presetSaved &&
+    formatSaved &&
+    secondsSaved;
+}
+
+
+bool loadLocationGridSettings() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      PREF_NAMESPACE,
+      true
+    )
+  ) {
+    locationGridSettings =
+      LocationGridSettings();
+
+    return false;
+  }
+
+  locationGridSettings.homeLatitude =
+    preferences.getDouble(
+      PREF_KEY_HOME_LATITUDE,
+      0.0
+    );
+
+  locationGridSettings.homeLongitude =
+    preferences.getDouble(
+      PREF_KEY_HOME_LONGITUDE,
+      0.0
+    );
+
+  locationGridSettings.showHomeMarker =
+    preferences.getBool(
+      PREF_KEY_SHOW_HOME_MARKER,
+      false
+    );
+
+  locationGridSettings.showCoordinateGrid =
+    preferences.getBool(
+      PREF_KEY_SHOW_COORDINATE_GRID,
+      false
+    );
+
+  preferences.end();
+
+  if (
+    !isfinite(
+      locationGridSettings.homeLatitude
+    ) ||
+    locationGridSettings.homeLatitude < -90.0 ||
+    locationGridSettings.homeLatitude > 90.0 ||
+    !isfinite(
+      locationGridSettings.homeLongitude
+    ) ||
+    locationGridSettings.homeLongitude < -180.0 ||
+    locationGridSettings.homeLongitude > 180.0
+  ) {
+    locationGridSettings =
+      LocationGridSettings();
+
+    return false;
+  }
+
+  return true;
+}
+
+
+bool saveLocationGridSettings() {
+  Preferences preferences;
+
+  if (
+    !preferences.begin(
+      PREF_NAMESPACE,
+      false
+    )
+  ) {
+    return false;
+  }
+
+  const bool latitudeSaved =
+    preferences.putDouble(
+      PREF_KEY_HOME_LATITUDE,
+      locationGridSettings.homeLatitude
+    ) > 0;
+
+  const bool longitudeSaved =
+    preferences.putDouble(
+      PREF_KEY_HOME_LONGITUDE,
+      locationGridSettings.homeLongitude
+    ) > 0;
+
+  const bool markerSaved =
+    preferences.putBool(
+      PREF_KEY_SHOW_HOME_MARKER,
+      locationGridSettings.showHomeMarker
+    ) > 0;
+
+  const bool gridSaved =
+    preferences.putBool(
+      PREF_KEY_SHOW_COORDINATE_GRID,
+      locationGridSettings.showCoordinateGrid
+    ) > 0;
+
+  preferences.end();
+
+  return
+    latitudeSaved &&
+    longitudeSaved &&
+    markerSaved &&
+    gridSaved;
+}
+
+
