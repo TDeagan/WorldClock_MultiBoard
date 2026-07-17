@@ -1,10 +1,10 @@
-# ESP32 World Clock v5.0
+# ESP32 World Clock v5.1
 
-ESP32 World Clock displays a live day/night world map on a 320 × 240 ILI9341 screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, and a latitude/longitude grid.
+ESP32 World Clock displays a live day/night world map on a 320 × 240 ILI9341 screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, and saved-location weather.
 
-The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware.
+The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts and a fixed-scale regional precipitation-radar image are cached on the card for immediate and offline display.
 
-Version 5.0 is the stable release following the tested 5.0-rc1 build. The WROOM and E32R28T board profiles have been tested on physical hardware. The Elegoo/CYD profile is included, but its touchscreen remains intentionally disabled until verified on that hardware.
+Version 5.1 adds weather based on the saved latitude and longitude. Forecasts come from Open-Meteo and precipitation radar comes from RainViewer. Alpha2 corrected the ESP32 DRAM linker overflow found in alpha1 by reusing the project's existing PNG decoder. Alpha3 made RainViewer downloads tolerant of CDN redirects and streamed responses, reported the actual HTTP or transport failure, and added a cached human-readable location name using OpenStreetMap Nominatim with coordinate fallback. Alpha4 preserves the transparent portions of RainViewer radar tiles and shortens the coordinate fallback heading by omitting the word `deg`. Alpha5 replaces the enlarged low-resolution world-map background with cached, native-resolution OpenStreetMap raster tiles at the same Web-Mercator zoom as the radar layer. Alpha6 keeps the touchscreen radar page open indefinitely until the user presses **CLOCK** or otherwise explicitly leaves the page. The underlying v5.0 firmware and the WROOM and E32R28T board profiles have been tested on physical hardware; the v5.1 weather feature should be treated as an alpha feature until it has completed the same hardware test cycle. The Elegoo/CYD profile is included, but its touchscreen remains intentionally disabled until verified on that hardware.
 
 ## Section 1: Using an Installed World Clock
 
@@ -14,6 +14,7 @@ The main display contains:
 
 - A world map blended between daylight and nighttime imagery according to the current position of the Sun.
 - Optional Sun, Moon, ISS, ISS orbit-track, home-location, and coordinate-grid overlays.
+- A lower-left weather control when weather is enabled and a home location has been saved.
 - A bottom status area showing local time, UTC time, and the local date.
 - The clock's web address, such as `http://192.168.1.42`, at the bottom center.
 
@@ -46,6 +47,7 @@ When the clock has no saved Wi-Fi configuration, it starts its own temporary set
 11. Enter the home location in decimal degrees:
     - Choose North or South and enter a latitude magnitude from 0 through 90.
     - Choose East or West and enter a longitude magnitude from 0 through 180.
+    - This saved point is also used for weather and regional radar.
 12. Enable any desired map overlays.
 13. Select **Save and connect**.
 
@@ -69,8 +71,10 @@ Tap the bottom status bar on the clock display to open the touchscreen menu. The
 - Saved-network removal with confirmation and automatic restart into setup mode
 - Touch, Wi-Fi, SD-card, NTP, and selected-map diagnostics
 - Touch recalibration from Diagnostics without erasing Wi-Fi or other settings
+- A saved-location weather page with current conditions and a three-day forecast
+- A fixed-scale regional precipitation-radar page centered on the saved location
 
-Settings changed on the touchscreen use the same saved Preferences values as the browser controls. The menu returns to the clock automatically after one minute without activity.
+Settings changed on the touchscreen use the same saved Preferences values as the browser controls. Most touchscreen menus return to the clock automatically after one minute without activity. The radar page is the exception: it remains displayed until the user presses **CLOCK** or explicitly navigates away.
 
 ### Changing Wi-Fi from the touchscreen
 
@@ -93,7 +97,7 @@ While the clock is operating normally:
 2. Connect the phone, tablet, or computer to the same Wi-Fi network as the clock.
 3. Enter the complete address in a browser, including `http://`.
 
-The control panel has three pages: **Settings**, **Diagnostics**, and **Maps**.
+The control panel has four pages: **Settings**, **Weather**, **Diagnostics**, and **Maps**.
 
 #### Settings
 
@@ -106,6 +110,8 @@ The Settings page shows the active configuration and permits changes to:
 - Home latitude and longitude
 - Home-location marker
 - 30-degree coordinate grid
+- Weather enabled or disabled
+- Fahrenheit/mph/inches or Celsius/km/h/millimeters
 - Sun marker
 - Moon marker and phase
 - ISS marker
@@ -115,6 +121,34 @@ The Settings page shows the active configuration and permits changes to:
 Select **Apply settings now** after making changes. Most changes are applied immediately without rebooting.
 
 The **Forget Wi-Fi and start setup** control erases the saved network credentials and restarts the clock in setup mode. It asks for confirmation before doing so.
+
+### Using saved-location weather
+
+When weather is enabled and a home latitude and longitude have been saved, a weather control appears in the lower-left corner of the world map. Before the first forecast arrives it displays `WX --`; afterward it displays a compact condition icon and the current temperature. Tap this control to open the Weather page.
+
+The touchscreen Weather page names the saved location in its header when a reverse-geocoded name is available. Until then, it shows the saved coordinates. The page shows:
+
+- Current condition and temperature
+- Feels-like temperature
+- Relative humidity
+- Wind direction, speed, and gusts
+- The age of the cached report
+- Three daily cards with condition, high, low, and maximum precipitation probability
+
+Use **REFRESH** to request a new forecast. Use **RADAR** to open the regional precipitation-radar page. The radar page shows a fixed-scale regional map centered on the saved latitude and longitude, places a crosshair at the saved point, and overlays the latest available RainViewer precipitation frame. The background is assembled from native 256 × 256 OpenStreetMap raster tiles at the same Web-Mercator zoom, so roads, boundaries, coastlines, and labels remain sharp instead of enlarging the 320 × 240 world map. It is not an interactive map and does not pan, zoom, or animate in this alpha release. The radar page stays open until **CLOCK** is pressed; the normal one-minute touchscreen inactivity timeout does not close it.
+
+The browser **Weather** page shows the resolved location name, saved coordinates, the same current conditions, and the three-day summary. It can schedule forecast and radar refreshes and can display the cached radar overlay. The browser image remains the transparent radar layer; the clock display combines it with cached OpenStreetMap raster tiles. Areas without precipitation remain transparent so the basemap remains visible.
+
+Normal refresh intervals are:
+
+- Forecast: every 30 minutes
+- Radar: every 15 minutes after radar has first been requested
+
+Opening the radar page requests a frame when none is cached or when the cached frame is stale. It also downloads only the small set of OpenStreetMap tiles needed by the current viewport when those files are missing. Basemap tiles are then reused from the microSD card and are not refreshed with every 15-minute radar update. The last successful forecast, radar image, and basemap remain available when the internet connection is unavailable. Failed downloads do not replace the last valid radar image. The Weather and Diagnostics pages display the cache age and retrieval errors.
+
+Weather uses the saved coordinates exactly; it does not infer coordinates from the Wi-Fi network and it does not use a finger press on the world map. After a successful forecast, the firmware makes a low-frequency reverse-geocoding request to label those coordinates. The label is cached with the forecast, and coordinates remain the fallback if naming is unavailable. Change the point on the Settings or touchscreen Location page. Changing coordinates invalidates both weather caches. Changing units invalidates only the forecast values.
+
+Forecast data is provided by [Open-Meteo](https://open-meteo.com/). Radar data is provided by [RainViewer](https://www.rainviewer.com/). The radar basemap and resolved location names use data from OpenStreetMap contributors. Source attribution appears on the device and browser weather pages. The standard OpenStreetMap raster service requires no API key, but it is a community-funded best-effort service: the firmware identifies itself with a World Clock User-Agent, requests only tiles currently needed by the radar viewport, and retains those tiles on the SD card rather than prefetching regions or repeatedly downloading the same background.
 
 ### Re-entering setup with the hardware button
 
@@ -190,6 +224,7 @@ The Diagnostics page reports information useful for troubleshooting, including:
 - microSD status
 - Selected map and source/cache paths
 - Day and night PNG/cache status
+- Weather enable state, units, forecast/radar cache ages, pending refreshes, and retrieval errors
 - ISS data and orbit-track status
 - Last system error and error detail
 - Touch hardware, calibration, rotation, state, and pressure-threshold status
@@ -205,6 +240,8 @@ Use the browser's **Refresh** link to update the values.
 - With seconds shown, the clock updates every second.
 - The map, terminator, astronomy overlays, and ISS data normally update together every five minutes.
 - Wi-Fi, NTP, and microSD failures are retried automatically.
+- Weather forecasts refresh in the background every 30 minutes when weather and a saved location are available.
+- After a radar image has been requested, stale radar is refreshed in the background every 15 minutes.
 - Sun, Moon, and terminator positions are calculated by the clock.
 - ISS marker and track features require internet access to retrieve a current ISS position.
 
@@ -248,6 +285,19 @@ Use the browser's **Refresh** link to update the values.
 - Check the Diagnostics page for Wi-Fi and ISS status.
 - The main clock and Sun/Moon display can continue even if the external ISS service is temporarily unavailable.
 
+**The weather button does not appear**
+
+- Confirm that a latitude and longitude have been applied and saved.
+- Confirm that weather is enabled on the browser Settings page.
+- The on-screen control is hidden when touch is disabled because it cannot be opened from the display; use the browser Weather page instead.
+
+**Forecast or radar will not update**
+
+- Confirm that Wi-Fi has internet access and working DNS.
+- Open Diagnostics and review the Weather error and Radar error rows. Alpha4 reports the returned HTTP status or ESP32 transport error for failed radar-image requests instead of only displaying a generic download failure.
+- Confirm that the microSD card is mounted. Forecasts can be retrieved without the card, but persistent forecast and radar caching require it.
+- A failed request leaves the last successful cached data in place. Wait at least one minute before repeated retries.
+
 ## Section 2: Installing the Firmware on Your Own Device
 
 ### Supported target boards
@@ -269,7 +319,7 @@ Other ESP32 display boards may work after adding or modifying a profile in `boar
 - One supported ESP32 display board
 - A compatible USB data cable
 - A microSD card, preferably formatted FAT32
-- A 2.4 GHz Wi-Fi network with internet access for NTP and optional ISS data
+- A 2.4 GHz Wi-Fi network with internet access for NTP, optional ISS data, and weather/radar retrieval
 - A computer capable of running the Arduino IDE
 
 Use a reliable power supply. Initial PNG-to-RGB565 cache generation performs sustained microSD reads and writes and should not be interrupted.
@@ -282,6 +332,8 @@ Install:
 2. The **esp32** board package by Espressif Systems through Arduino Boards Manager
 3. **LovyanGFX** through Arduino Library Manager
 4. **PNGdec** by Larry Bank/BitBank through Arduino Library Manager
+
+The v5.1 development baseline supplied for this release uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
 
 The following headers are supplied by the ESP32 Arduino core and should not normally be installed separately:
 
@@ -320,6 +372,7 @@ WorldClock_MultiBoard/
 ├── 62_RuntimeWebConfig.ino
 ├── 65_ISS.ino
 ├── 66_OrbitTrack.ino
+├── 67_Weather.ino
 ├── 70_TouchUI.ino
 ├── 90_Application.ino
 ├── XPT2046Soft.cpp
@@ -355,7 +408,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.0";
+  "5.1";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -413,9 +466,13 @@ Do not create the cache files manually. The firmware generates files such as:
 /maps/earth_day_political.rgb565
 /maps/earth_day_relief_320x240.rgb565
 /earth_night.rgb565
+/weather/forecast.bin
+/weather/radar.png
+/weather/radar.bin
+/weather/osm_<zoom>_<x>_<y>.png
 ```
 
-Each valid 320 × 240 RGB565 cache is 153,600 bytes.
+Each valid 320 × 240 RGB565 map cache is 153,600 bytes. The `/weather` directory and its files are created automatically after weather is used; they should not be preloaded or edited manually.
 
 Older installations that contain `/earth_day.png` in the card root are migrated automatically to `/maps/earth_day.png` when possible.
 
@@ -450,7 +507,7 @@ See `Map requirements.txt` for the complete checklist.
 8. Resolve any missing-library errors before uploading.
 9. Select **Upload**.
 10. If the board does not enter the bootloader automatically, hold **BOOT**, begin the upload, and release **BOOT** when the upload starts.
-11. Open Serial Monitor at 115200 baud to observe startup, Wi-Fi, NTP, SD, map-cache, and web-server messages.
+11. Open Serial Monitor at 115200 baud to observe startup, Wi-Fi, NTP, SD, map-cache, weather, radar, and web-server messages.
 12. Reset or power-cycle the board after the upload if it does not restart automatically.
 
 On first boot, the clock should display its splash screen, run integrated touch calibration when needed, and then start the `WorldClock-XXXX` setup network. Holding **BOOT** for three seconds during calibration disables touch and still allows Wi-Fi setup to continue.
@@ -542,6 +599,14 @@ Production revisions can differ. If the display is correctly landscape but upsid
 - Confirm that the Wi-Fi network provides internet access and DNS.
 - NTP is required to establish correct time after startup.
 - The ISS overlay uses the external `wheretheiss.at` service and can be unavailable even when the rest of the clock works.
+
+**Weather compilation or runtime problems**
+
+- No ArduinoJson installation is required; v5.1 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
+- Confirm that `HTTPClient.h` and `WiFiClientSecure.h` are available from the selected ESP32 board package.
+- Confirm that the partition scheme still provides enough application space after adding `67_Weather.ino`.
+- Persistent weather, radar, and basemap caching requires a writable microSD card; the firmware creates `/weather` automatically.
+- Forecast retrieval uses HTTPS access to Open-Meteo. Radar metadata and imagery use HTTPS access to RainViewer. The regional basemap uses `tile.openstreetmap.org`, and optional location naming uses Nominatim at OpenStreetMap. Networks that block any of those hosts may still permit NTP and ordinary Wi-Fi operation while the corresponding weather feature fails.
 
 ### Extending the project
 

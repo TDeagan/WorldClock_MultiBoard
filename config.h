@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.0";
+  "5.1";
 
 // ============================================================
 // BOARD SELECTION
@@ -202,6 +202,14 @@ static constexpr const char *MAP_REBUILD_ALL_PATH = "/maps/rebuild-all";
 static constexpr const char *MAP_PREVIEW_PATH = "/maps/preview";
 static constexpr const char *MAP_NIGHT_PREVIEW_PATH = "/maps/night-preview";
 
+// Saved-location weather pages.
+static constexpr const char *WEATHER_PATH = "/weather";
+static constexpr const char *WEATHER_REFRESH_PATH = "/weather/refresh";
+static constexpr const char *WEATHER_RADAR_REFRESH_PATH =
+  "/weather/refresh-radar";
+static constexpr const char *WEATHER_RADAR_IMAGE_PATH =
+  "/weather/radar.png";
+
 // ============================================================
 // PREFERENCES / NONVOLATILE STORAGE
 // ============================================================
@@ -260,6 +268,15 @@ static constexpr const char *PREF_KEY_SHOW_HOME_MARKER =
 static constexpr const char *PREF_KEY_SHOW_COORDINATE_GRID =
   "showGrid";
 
+static constexpr const char *PREF_KEY_HOME_LOCATION_CONFIGURED =
+  "homeSet";
+
+static constexpr const char *PREF_KEY_WEATHER_ENABLED =
+  "weatherOn";
+
+static constexpr const char *PREF_KEY_WEATHER_FAHRENHEIT =
+  "weatherF";
+
 static constexpr const char *PREF_KEY_SELECTED_DAY_MAP =
   "dayMap";
 
@@ -312,6 +329,84 @@ static constexpr unsigned long NTP_RETRY_MS =
 
 static constexpr unsigned long STORAGE_RETRY_MS =
   30000UL;
+
+// ============================================================
+// SAVED-LOCATION WEATHER
+// ============================================================
+
+static constexpr const char *OPEN_METEO_FORECAST_ENDPOINT =
+  "https://api.open-meteo.com/v1/forecast";
+
+static constexpr const char *RAINVIEWER_WEATHER_MAPS_ENDPOINT =
+  "https://api.rainviewer.com/public/weather-maps.json";
+
+// Standard OpenStreetMap raster tiles require no account or API key.
+// Keep this configurable so another compatible z/x/y PNG service can be
+// substituted later without changing the radar renderer.
+static constexpr const char *OPENSTREETMAP_TILE_ENDPOINT =
+  "https://tile.openstreetmap.org";
+
+static constexpr const char *NOMINATIM_REVERSE_ENDPOINT =
+  "https://nominatim.openstreetmap.org/reverse";
+
+static constexpr const char *WEATHER_DIRECTORY =
+  "/weather";
+
+static constexpr const char *WEATHER_FORECAST_CACHE_FILE =
+  "/weather/forecast.bin";
+
+static constexpr const char *WEATHER_FORECAST_TEMP_FILE =
+  "/weather/forecast.tmp";
+
+static constexpr const char *WEATHER_RADAR_IMAGE_FILE =
+  "/weather/radar.png";
+
+static constexpr const char *WEATHER_RADAR_TEMP_FILE =
+  "/weather/radar.tmp";
+
+static constexpr const char *WEATHER_RADAR_BACKUP_FILE =
+  "/weather/radar.bak";
+
+static constexpr const char *WEATHER_RADAR_META_FILE =
+  "/weather/radar.bin";
+
+static constexpr const char *WEATHER_RADAR_META_TEMP_FILE =
+  "/weather/radar-meta.tmp";
+
+static constexpr const char *WEATHER_BASE_TILE_PREFIX =
+  "/weather/osm_";
+
+static constexpr const char *WEATHER_BASE_TILE_TEMP_FILE =
+  "/weather/osm-tile.tmp";
+
+static constexpr size_t WEATHER_FORECAST_DAYS = 3;
+static constexpr unsigned long WEATHER_REFRESH_MS = 30UL * 60UL * 1000UL;
+static constexpr unsigned long WEATHER_RADAR_REFRESH_MS = 15UL * 60UL * 1000UL;
+static constexpr unsigned long WEATHER_RETRY_MS = 60UL * 1000UL;
+static constexpr unsigned long WEATHER_INITIAL_FETCH_DELAY_MS = 8000UL;
+static constexpr uint16_t WEATHER_HTTP_TIMEOUT_MS = 20000;
+static constexpr unsigned long WEATHER_LOCATION_NAME_RETRY_MS =
+  6UL * 60UL * 60UL * 1000UL;
+static constexpr double WEATHER_LOCATION_MATCH_DEGREES = 0.005;
+
+// Fixed regional radar viewport. RainViewer returns a 256 x 256 image; the
+// center 160 scanlines fit the touchscreen page while preserving its center.
+// OpenStreetMap tiles use the same Web-Mercator zoom and are cropped to this
+// viewport before the transparent radar layer is drawn.
+static constexpr uint8_t WEATHER_RADAR_ZOOM = 4;
+static constexpr int WEATHER_RADAR_IMAGE_SIZE = 256;
+static constexpr int WEATHER_RADAR_IMAGE_X = 32;
+static constexpr int WEATHER_RADAR_IMAGE_Y = 31;
+static constexpr int WEATHER_RADAR_IMAGE_W = 256;
+static constexpr int WEATHER_RADAR_IMAGE_H = 160;
+static constexpr int WEATHER_RADAR_SOURCE_CROP_TOP =
+  (WEATHER_RADAR_IMAGE_SIZE - WEATHER_RADAR_IMAGE_H) / 2;
+
+// Finger-sized weather control in the lower-left map area.
+static constexpr int WEATHER_BUTTON_X = 4;
+static constexpr int WEATHER_BUTTON_Y = SCREEN_MAP_H - 34;
+static constexpr int WEATHER_BUTTON_W = 66;
+static constexpr int WEATHER_BUTTON_H = 30;
 
 
 // ============================================================
@@ -392,6 +487,53 @@ struct LocationGridSettings {
   double homeLongitude = 0.0;
   bool showHomeMarker = false;
   bool showCoordinateGrid = false;
+  bool homeLocationConfigured = false;
+};
+
+struct WeatherSettings {
+  bool enabled = true;
+  bool useFahrenheit = true;
+};
+
+struct WeatherForecastDay {
+  time_t date = 0;
+  int16_t weatherCode = -1;
+  float highTemperature = 0.0f;
+  float lowTemperature = 0.0f;
+  uint8_t precipitationProbability = 0;
+  time_t sunrise = 0;
+  time_t sunset = 0;
+};
+
+struct WeatherForecast {
+  bool valid = false;
+  double latitude = 0.0;
+  double longitude = 0.0;
+  time_t fetchedAt = 0;
+  time_t observationTime = 0;
+  int32_t utcOffsetSeconds = 0;
+  char timezoneAbbreviation[16] = "";
+  char locationName[64] = "";
+  float temperature = 0.0f;
+  float apparentTemperature = 0.0f;
+  uint8_t relativeHumidity = 0;
+  int16_t weatherCode = -1;
+  float precipitation = 0.0f;
+  float windSpeed = 0.0f;
+  uint16_t windDirection = 0;
+  float windGust = 0.0f;
+  bool isDay = true;
+  bool useFahrenheit = true;
+  WeatherForecastDay days[WEATHER_FORECAST_DAYS];
+};
+
+struct WeatherRadarInfo {
+  bool valid = false;
+  double latitude = 0.0;
+  double longitude = 0.0;
+  time_t fetchedAt = 0;
+  time_t frameTime = 0;
+  uint8_t zoom = WEATHER_RADAR_ZOOM;
 };
 
 struct DaylightMapInfo {
@@ -561,6 +703,9 @@ extern OverlaySettings overlaySettings;
 extern DisplaySettings displaySettings;
 extern LocationGridSettings locationGridSettings;
 extern TimeSettings timeSettings;
+extern WeatherSettings weatherSettings;
+extern WeatherForecast weatherForecast;
+extern WeatherRadarInfo weatherRadarInfo;
 extern IssPosition issPosition;
 extern OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];
 extern bool issTrackValid;
@@ -620,6 +765,7 @@ String formatHomeLocation();
 
 void renderCoordinateGridOverlay();
 void renderHomeLocationOverlay();
+void renderWeatherButtonOverlay();
 
 // Internal math/map helpers
 static double norm180(double x);
@@ -779,6 +925,40 @@ bool loadTimeSettings();
 bool saveTimeSettings();
 bool loadLocationGridSettings();
 bool saveLocationGridSettings();
+bool loadWeatherSettings();
+bool saveWeatherSettings();
+
+// Saved-location weather and radar.
+bool homeLocationIsConfigured();
+bool weatherFeatureAvailable();
+bool weatherForecastAvailableForSavedLocation();
+bool weatherRadarAvailableForSavedLocation();
+bool weatherForecastIsStale();
+bool weatherRadarIsStale();
+void initializeWeatherService();
+void serviceWeather();
+void requestWeatherForecastRefresh();
+void requestWeatherRadarRefresh();
+bool weatherForecastRefreshIsPending();
+bool weatherRadarRefreshIsPending();
+const String &weatherForecastLastError();
+const String &weatherRadarLastError();
+const char *weatherConditionText(int weatherCode);
+const char *weatherWindDirectionText(uint16_t degrees);
+String weatherTemperatureText(float temperature, bool includeUnit = true);
+String weatherDayName(size_t dayIndex);
+String weatherForecastAgeText();
+String weatherRadarAgeText();
+String weatherLocationName();
+bool weatherLocationNameIsResolved();
+void drawWeatherIcon(
+  int centerX,
+  int centerY,
+  int weatherCode,
+  bool isDay,
+  uint16_t backgroundColor
+);
+bool drawWeatherRadarImage();
 
 // Shared settings controller used by browser and touchscreen interfaces.
 bool saveUtcOffsetPreference(int offsetMinutes);
@@ -838,4 +1018,7 @@ void serviceTouchUi();
 bool touchUiIsOpen();
 void closeTouchUi(bool redrawClock = true);
 void touchUiHandleDisplayRotationChanged();
+bool touchUiWeatherPageIsOpen();
+bool touchUiWeatherRadarIsOpen();
+void touchUiHandleWeatherUpdated();
 

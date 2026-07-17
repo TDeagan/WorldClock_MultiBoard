@@ -11,7 +11,8 @@
 //   5. Moon
 //   6. Current ISS marker
 //   7. Optional home-location marker
-//   8. Clock/status bar and IP address
+//   8. Saved-location weather control
+//   9. Clock/status bar and IP address
 //
 // The scheduler and recovery code call only redrawWorldClock() or
 // renderStatusBar(); they no longer need to know the layer order.
@@ -26,6 +27,7 @@ void renderOverlayLayers(time_t epoch) {
   renderCelestialOverlays(epoch);
   renderIssOverlay();
   renderHomeLocationOverlay();
+  renderWeatherButtonOverlay();
 
   renderState.overlayLayersDrawn = true;
 }

@@ -176,6 +176,10 @@ void initializeWorldClock() {
   systemStatus.lastStorageAttempt =
     millis();
 
+  if (sdReady) {
+    initializeWeatherService();
+  }
+
   if (!sdReady) {
     showStatus(
       "Map unavailable",
@@ -275,6 +279,10 @@ void serviceWorldClock() {
 
     sdReady = initializeSD();
 
+    if (sdReady) {
+      initializeWeatherService();
+    }
+
     if (
       sdReady &&
       timeValid
@@ -285,9 +293,11 @@ void serviceWorldClock() {
     }
   }
 
+  serviceWeather();
+
   // While a touch page is open, keep Wi-Fi, the web server, configuration
-  // button, and recovery services alive, but do not let scheduled clock/map
-  // painting overwrite the touchscreen interface.
+  // button, weather service, and recovery services alive, but do not let
+  // scheduled clock/map painting overwrite the touchscreen interface.
   if (touchUiIsOpen()) {
     delay(10);
     return;

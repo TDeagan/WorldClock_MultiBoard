@@ -688,6 +688,8 @@ void handleConfigurationSave() {
   locationGridSettings.homeLongitude =
     requestedHomeLongitude;
 
+  locationGridSettings.homeLocationConfigured = true;
+
   locationGridSettings.showHomeMarker =
     portalServer.hasArg("showHomeMarker");
 
@@ -1127,6 +1129,7 @@ bool ensureNetworkConfigured() {
   loadOverlaySettings();
   loadTimeSettings();
   loadLocationGridSettings();
+  loadWeatherSettings();
   loadNetworkSettings();
 
   if (!networkSettings.configured) {
@@ -1394,6 +1397,16 @@ bool loadLocationGridSettings() {
       false
     );
 
+  const bool inferredConfigured =
+    fabs(locationGridSettings.homeLatitude) > 0.0000005 ||
+    fabs(locationGridSettings.homeLongitude) > 0.0000005;
+
+  locationGridSettings.homeLocationConfigured =
+    preferences.getBool(
+      PREF_KEY_HOME_LOCATION_CONFIGURED,
+      inferredConfigured
+    );
+
   preferences.end();
 
   if (
@@ -1454,13 +1467,20 @@ bool saveLocationGridSettings() {
       locationGridSettings.showCoordinateGrid
     ) > 0;
 
+  const bool configuredSaved =
+    preferences.putBool(
+      PREF_KEY_HOME_LOCATION_CONFIGURED,
+      locationGridSettings.homeLocationConfigured
+    ) > 0;
+
   preferences.end();
 
   return
     latitudeSaved &&
     longitudeSaved &&
     markerSaved &&
-    gridSaved;
+    gridSaved &&
+    configuredSaved;
 }
 
 
