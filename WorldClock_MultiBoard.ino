@@ -1,6 +1,6 @@
 #include "config.h"
 
-// World Clock v5.0 — integrated touchscreen calibration.
+// World Clock v5.1 — saved-location weather and regional radar.
 // Select the target board with WORLDCLOCK_BOARD in config.h.
 
 void setup() {

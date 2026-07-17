@@ -14,6 +14,8 @@ bool runtimePendingTimeZoneChanged = false;
 bool runtimePendingClockDisplayChanged = false;
 bool runtimePendingOrientationChanged = false;
 bool runtimePendingLocationGridChanged = false;
+bool runtimePendingHomeCoordinatesChanged = false;
+bool runtimePendingWeatherChanged = false;
 unsigned long runtimeActionAt = 0;
 
 bool runtimeTouchCalibrationPending = false;
@@ -102,10 +104,11 @@ String pageHeader(const String &title) {
             "margin-bottom:12px;background:#24435a}.err{background:#6b2632}"
             "table{width:100%;border-collapse:collapse}td{padding:7px;border-bottom:1px solid #40505f}"
             "td:first-child{color:#bec8d2}.nav{margin-bottom:16px}.nav a{margin-right:14px}"
-            ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}.map-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.map-card{border:1px solid #40505f;border-radius:10px;padding:12px;background:#14212c}.map-card.selected{border-color:#ffd43b}.map-card h3{overflow-wrap:anywhere;margin:10px 0}.map-thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#05080b;border-radius:7px}.badge{display:inline-block;padding:4px 7px;border-radius:999px;margin:2px 4px 2px 0;font-size:.82rem;background:#40505f}.ok{background:#28603d}.bad{background:#7a2f3b}.selected-badge{background:#7b6418}.small-button{margin-top:9px;padding:8px;font-size:.9rem}.muted{opacity:.65}</style><title>");
+            ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}.map-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.map-card{border:1px solid #40505f;border-radius:10px;padding:12px;background:#14212c}.map-card.selected{border-color:#ffd43b}.map-card h3{overflow-wrap:anywhere;margin:10px 0}.map-thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#05080b;border-radius:7px}.badge{display:inline-block;padding:4px 7px;border-radius:999px;margin:2px 4px 2px 0;font-size:.82rem;background:#40505f}.ok{background:#28603d}.bad{background:#7a2f3b}.selected-badge{background:#7b6418}.small-button{margin-top:9px;padding:8px;font-size:.9rem}.muted{opacity:.65}.radar-image{display:block;width:256px;max-width:100%;height:auto;margin:12px auto;background:#14212c;border:1px solid #40505f;border-radius:7px}</style><title>");
   page += htmlEscapeRuntime(title);
   page += F("</title></head><body><div class=\"card\"><div class=\"nav\">"
-            "<a href=\"/\">Settings</a><a href=\"/diagnostics\">Diagnostics</a>"
+            "<a href=\"/\">Settings</a><a href=\"/weather\">Weather</a>"
+            "<a href=\"/diagnostics\">Diagnostics</a>"
             "<a href=\"/maps\">Maps</a></div><h1>");
   page += htmlEscapeRuntime(title);
   page += F("</h1>");
@@ -264,6 +267,17 @@ String runtimeConfigurationPage(
     locationGridSettings.showCoordinateGrid
       ? "On; 30-degree spacing"
       : "Off"
+  );
+
+  summaryRow(
+    "Weather",
+    !weatherSettings.enabled
+      ? "Disabled"
+      : !homeLocationIsConfigured()
+          ? "Waiting for a saved location"
+          : weatherSettings.useFahrenheit
+              ? "Enabled; Fahrenheit"
+              : "Enabled; Celsius"
   );
 
   summaryRow(
@@ -504,6 +518,40 @@ String runtimeConfigurationPage(
     ">Show 30-degree coordinate grid</label>"
     "<p class=\"note\">The Equator and Prime Meridian are emphasized. "
     "Coordinates use decimal degrees.</p>"
+    "<label>Saved-location weather</label>"
+    "<label class=\"check\">"
+    "<input type=\"checkbox\" id=\"weatherEnabled\""
+  );
+
+  if (weatherSettings.enabled) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Enable weather and regional radar</label>"
+    "<label>Temperature units</label>"
+    "<select id=\"weatherUnit\">"
+    "<option value=\"F\""
+  );
+
+  if (weatherSettings.useFahrenheit) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">Fahrenheit / mph / inches</option>"
+    "<option value=\"C\""
+  );
+
+  if (!weatherSettings.useFahrenheit) {
+    page += F(" selected");
+  }
+
+  page += F(
+    ">Celsius / km/h / millimeters</option>"
+    "</select>"
+    "<p class=\"note\">Weather uses the saved latitude and longitude. "
+    "The lower-left weather control appears after a location is saved.</p>"
     "<label>Map overlays</label>"
     "<label class=\"check\">"
     "<input type=\"checkbox\" id=\"showSun\""
@@ -580,7 +628,8 @@ String runtimeConfigurationPage(
         "add('homeLatitudeMagnitude',document.getElementById('homeLatitudeMagnitude').value);"
         "add('homeLongitudeSign',document.getElementById('homeLongitudeSign').value);"
         "add('homeLongitudeMagnitude',document.getElementById('homeLongitudeMagnitude').value);"
-        "var checks=['showSeconds','showHomeMarker','showCoordinateGrid',"
+        "add('weatherUnit',document.getElementById('weatherUnit').value);"
+        "var checks=['showSeconds','showHomeMarker','showCoordinateGrid','weatherEnabled',"
           "'showSun','showMoon','showISS','showIssTrack','issTrackDotted'];"
         "for(var i=0;i<checks.length;i++){"
           "var e=document.getElementById(checks[i]);"
@@ -635,7 +684,8 @@ void handleRuntimeSave() {
     !runtimeServer.hasArg("homeLatitudeSign") ||
     !runtimeServer.hasArg("homeLatitudeMagnitude") ||
     !runtimeServer.hasArg("homeLongitudeSign") ||
-    !runtimeServer.hasArg("homeLongitudeMagnitude")
+    !runtimeServer.hasArg("homeLongitudeMagnitude") ||
+    !runtimeServer.hasArg("weatherUnit")
   ) {
     sendRuntimeHtml(
       400,
@@ -750,6 +800,12 @@ void handleRuntimeSave() {
   const bool requestedShowCoordinateGrid =
     runtimeServer.hasArg("showCoordinateGrid");
 
+  const bool requestedWeatherEnabled =
+    runtimeServer.hasArg("weatherEnabled");
+
+  const bool requestedWeatherFahrenheit =
+    runtimeServer.arg("weatherUnit") != "C";
+
   runtimePendingTimeZoneChanged =
     requestedTimeZone !=
       timeSettings.timeZone ||
@@ -770,7 +826,7 @@ void handleRuntimeSave() {
     requestedFlip180 !=
       displaySettings.flip180;
 
-  runtimePendingLocationGridChanged =
+  runtimePendingHomeCoordinatesChanged =
     fabs(
       requestedHomeLatitude -
       locationGridSettings.homeLatitude
@@ -779,10 +835,19 @@ void handleRuntimeSave() {
       requestedHomeLongitude -
       locationGridSettings.homeLongitude
     ) > 0.0000005 ||
+    !locationGridSettings.homeLocationConfigured;
+
+  runtimePendingLocationGridChanged =
+    runtimePendingHomeCoordinatesChanged ||
     requestedShowHomeMarker !=
       locationGridSettings.showHomeMarker ||
     requestedShowCoordinateGrid !=
       locationGridSettings.showCoordinateGrid;
+
+  runtimePendingWeatherChanged =
+    requestedWeatherEnabled != weatherSettings.enabled ||
+    requestedWeatherFahrenheit != weatherSettings.useFahrenheit ||
+    runtimePendingHomeCoordinatesChanged;
 
   networkSettings.utcOffsetMinutes =
     offsetMinutes;
@@ -804,6 +869,11 @@ void handleRuntimeSave() {
 
   locationGridSettings.homeLongitude =
     requestedHomeLongitude;
+
+  locationGridSettings.homeLocationConfigured = true;
+
+  weatherSettings.enabled = requestedWeatherEnabled;
+  weatherSettings.useFahrenheit = requestedWeatherFahrenheit;
 
   locationGridSettings.showHomeMarker =
     requestedShowHomeMarker;
@@ -843,14 +913,18 @@ void handleRuntimeSave() {
   const bool locationSaved =
     saveLocationGridSettings();
 
+  const bool weatherSaved =
+    saveWeatherSettings();
+
   Serial.printf(
     "Runtime web: persistence results; "
-    "offset=%d time=%d overlays=%d display=%d location=%d\n",
+    "offset=%d time=%d overlays=%d display=%d location=%d weather=%d\n",
     offsetSaved,
     timeSaved,
     overlaysSaved,
     displaySaved,
-    locationSaved
+    locationSaved,
+    weatherSaved
   );
 
   runtimeApplyPending = true;
@@ -861,7 +935,8 @@ void handleRuntimeSave() {
     !timeSaved ||
     !overlaysSaved ||
     !displaySaved ||
-    !locationSaved;
+    !locationSaved ||
+    !weatherSaved;
 
   String message =
     "Settings accepted. The display is updating now.";
@@ -980,6 +1055,258 @@ void handleTouchRecalibrate() {
         "<a href=\"/diagnostics\">Diagnostics</a>.</p>") +
       pageFooter()
   );
+}
+
+String buildWeatherPage(
+  const String &message = "",
+  bool error = false
+) {
+  String pageTitle = "Weather - ";
+  pageTitle += weatherLocationName();
+  String page = pageHeader(pageTitle);
+
+  if (message.length()) {
+    page += F("<div class=\"msg");
+
+    if (error) {
+      page += F(" err");
+    }
+
+    page += F("\">");
+    page += htmlEscapeRuntime(message);
+    page += F("</div>");
+  }
+
+  page += F("<table>");
+
+  auto row =
+    [&](const String &name, const String &value) {
+      page += F("<tr><td>");
+      page += htmlEscapeRuntime(name);
+      page += F("</td><td>");
+      page += htmlEscapeRuntime(value);
+      page += F("</td></tr>");
+    };
+
+  row(
+    "Location",
+    homeLocationIsConfigured()
+      ? weatherLocationName()
+      : "Not configured"
+  );
+
+  row(
+    "Coordinates",
+    homeLocationIsConfigured()
+      ? formatHomeLocation()
+      : "Not configured"
+  );
+
+  row(
+    "Weather feature",
+    weatherSettings.enabled ? "Enabled" : "Disabled"
+  );
+
+  row(
+    "Units",
+    weatherSettings.useFahrenheit
+      ? "Fahrenheit, mph, inches"
+      : "Celsius, km/h, millimeters"
+  );
+
+  row("Forecast cache", weatherForecastAgeText());
+  row("Radar cache", weatherRadarAgeText());
+  page += F("</table>");
+
+  if (!weatherSettings.enabled) {
+    page += F(
+      "<p>Weather is disabled. Enable it on the "
+      "<a href=\"/\">Settings</a> page.</p>"
+    );
+    page += pageFooter();
+    return page;
+  }
+
+  if (!homeLocationIsConfigured()) {
+    page += F(
+      "<p>Enter and apply a home latitude and longitude on the "
+      "<a href=\"/\">Settings</a> page before requesting weather.</p>"
+    );
+    page += pageFooter();
+    return page;
+  }
+
+  page += F("<h2>Current conditions for ");
+  page += htmlEscapeRuntime(weatherLocationName());
+  page += F("</h2>");
+
+  if (weatherForecastAvailableForSavedLocation()) {
+    page += F("<table>");
+    row(
+      "Conditions",
+      weatherConditionText(weatherForecast.weatherCode)
+    );
+    row(
+      "Temperature",
+      weatherTemperatureText(weatherForecast.temperature)
+    );
+    row(
+      "Feels like",
+      weatherTemperatureText(weatherForecast.apparentTemperature)
+    );
+    row(
+      "Humidity",
+      String(weatherForecast.relativeHumidity) + "%"
+    );
+    row(
+      "Precipitation",
+      String(weatherForecast.precipitation, 2) +
+        (weatherSettings.useFahrenheit ? " in" : " mm")
+    );
+    row(
+      "Wind",
+      String(weatherWindDirectionText(weatherForecast.windDirection)) +
+        " " + String(weatherForecast.windSpeed, 1) +
+        (weatherSettings.useFahrenheit ? " mph" : " km/h")
+    );
+    row(
+      "Gusts",
+      String(weatherForecast.windGust, 1) +
+        (weatherSettings.useFahrenheit ? " mph" : " km/h")
+    );
+    page += F("</table><h2>Three-day forecast</h2><table>");
+
+    for (size_t index = 0; index < WEATHER_FORECAST_DAYS; ++index) {
+      const WeatherForecastDay &day = weatherForecast.days[index];
+      String summary = weatherConditionText(day.weatherCode);
+      summary += "; high ";
+      summary += weatherTemperatureText(day.highTemperature);
+      summary += ", low ";
+      summary += weatherTemperatureText(day.lowTemperature);
+      summary += ", rain ";
+      summary += String(day.precipitationProbability);
+      summary += "%";
+      row(weatherDayName(index), summary);
+    }
+
+    page += F("</table>");
+  } else {
+    page += F("<p>No forecast is cached for the saved location.</p>");
+
+    if (weatherForecastLastError().length()) {
+      page += F("<div class=\"msg err\">");
+      page += htmlEscapeRuntime(weatherForecastLastError());
+      page += F("</div>");
+    }
+  }
+
+  page += F(
+    "<a class=\"button\" href=\"/weather/refresh\">"
+    "Refresh forecast</a>"
+    "<h2>Regional precipitation radar</h2>"
+  );
+
+  if (weatherRadarAvailableForSavedLocation()) {
+    page += F(
+      "<img class=\"radar-image\" src=\"/weather/radar.png?t="
+    );
+    page += String(static_cast<unsigned long>(weatherRadarInfo.frameTime));
+    page += F(
+      "\" width=\"256\" height=\"256\" alt=\"Cached RainViewer radar overlay\">"
+      "<p class=\"note\">The device display places this transparent radar "
+      "overlay over cached OpenStreetMap raster tiles and marks the saved "
+      "location at the center.</p>"
+    );
+  } else {
+    page += F("<p>No radar image is cached for the saved location.</p>");
+
+    if (weatherRadarLastError().length()) {
+      page += F("<div class=\"msg err\">");
+      page += htmlEscapeRuntime(weatherRadarLastError());
+      page += F("</div>");
+    }
+  }
+
+  page += F(
+    "<a class=\"button\" href=\"/weather/refresh-radar\">"
+    "Refresh radar</a>"
+    "<p class=\"note\">Forecast data: "
+    "<a href=\"https://open-meteo.com/\">Open-Meteo</a>. "
+    "Radar data: <a href=\"https://www.rainviewer.com/\">RainViewer</a>. "
+    "Map and location-name data: &copy; "
+    "<a href=\"https://www.openstreetmap.org/copyright\">"
+    "OpenStreetMap contributors</a>."
+    "</p>"
+  );
+
+  page += pageFooter();
+  return page;
+}
+
+void handleWeather() {
+  if (weatherFeatureAvailable() && weatherRadarIsStale()) {
+    requestWeatherRadarRefresh();
+  }
+
+  sendRuntimeHtml(200, buildWeatherPage());
+}
+
+void handleWeatherRefresh() {
+  if (!weatherFeatureAvailable()) {
+    sendRuntimeHtml(
+      409,
+      buildWeatherPage(
+        "Enable weather and save a location before refreshing.",
+        true
+      )
+    );
+    return;
+  }
+
+  requestWeatherForecastRefresh();
+  runtimeServer.sendHeader("Refresh", "2; url=/weather");
+  sendRuntimeHtml(
+    202,
+    buildWeatherPage("Forecast refresh scheduled.")
+  );
+}
+
+void handleWeatherRadarRefresh() {
+  if (!weatherFeatureAvailable()) {
+    sendRuntimeHtml(
+      409,
+      buildWeatherPage(
+        "Enable weather and save a location before refreshing radar.",
+        true
+      )
+    );
+    return;
+  }
+
+  requestWeatherRadarRefresh();
+  runtimeServer.sendHeader("Refresh", "3; url=/weather");
+  sendRuntimeHtml(
+    202,
+    buildWeatherPage("Radar refresh scheduled.")
+  );
+}
+
+void handleWeatherRadarImage() {
+  if (!weatherRadarAvailableForSavedLocation()) {
+    runtimeServer.send(404, "text/plain", "Radar image not available");
+    return;
+  }
+
+  File image = SD.open(WEATHER_RADAR_IMAGE_FILE, FILE_READ);
+
+  if (!image) {
+    runtimeServer.send(404, "text/plain", "Radar image not found");
+    return;
+  }
+
+  runtimeServer.sendHeader("Cache-Control", "private, max-age=60");
+  runtimeServer.streamFile(image, "image/png");
+  image.close();
 }
 
 void handleMaps() {
@@ -1296,6 +1623,40 @@ String buildDiagnosticsPage() {
   row("Home latitude", formatLatitude(locationGridSettings.homeLatitude));
   row("Home longitude", formatLongitude(locationGridSettings.homeLongitude));
   row(
+    "Home location configured",
+    homeLocationIsConfigured() ? "Yes" : "No"
+  );
+  row(
+    "Weather",
+    weatherSettings.enabled ? "Enabled" : "Disabled"
+  );
+  row(
+    "Weather units",
+    weatherSettings.useFahrenheit ? "Fahrenheit" : "Celsius"
+  );
+  row("Forecast cache", weatherForecastAgeText());
+  row("Radar cache", weatherRadarAgeText());
+  row(
+    "Forecast refresh",
+    weatherForecastRefreshIsPending() ? "Pending" : "Idle"
+  );
+  row(
+    "Radar refresh",
+    weatherRadarRefreshIsPending() ? "Pending" : "Idle"
+  );
+  row(
+    "Weather error",
+    weatherForecastLastError().length()
+      ? weatherForecastLastError()
+      : "None"
+  );
+  row(
+    "Radar/map error",
+    weatherRadarLastError().length()
+      ? weatherRadarLastError()
+      : "None"
+  );
+  row(
     "Coordinate grid",
     locationGridSettings.showCoordinateGrid
       ? "Shown; 30-degree spacing"
@@ -1592,6 +1953,22 @@ void startRuntimeConfigServer() {
     HTTP_GET,
     handleForgetWifi
   );
+  runtimeServer.on(WEATHER_PATH, HTTP_GET, handleWeather);
+  runtimeServer.on(
+    WEATHER_REFRESH_PATH,
+    HTTP_GET,
+    handleWeatherRefresh
+  );
+  runtimeServer.on(
+    WEATHER_RADAR_REFRESH_PATH,
+    HTTP_GET,
+    handleWeatherRadarRefresh
+  );
+  runtimeServer.on(
+    WEATHER_RADAR_IMAGE_PATH,
+    HTTP_GET,
+    handleWeatherRadarImage
+  );
   runtimeServer.on(DIAGNOSTICS_PATH, HTTP_GET, handleDiagnostics);
   runtimeServer.on(
     TOUCH_RECALIBRATE_PATH,
@@ -1705,19 +2082,30 @@ void serviceRuntimeConfigServer() {
     const bool locationGridChanged =
       runtimePendingLocationGridChanged;
 
+    const bool homeCoordinatesChanged =
+      runtimePendingHomeCoordinatesChanged;
+
+    const bool weatherChanged =
+      runtimePendingWeatherChanged;
+
     runtimePendingTimeZoneChanged = false;
     runtimePendingClockDisplayChanged = false;
     runtimePendingOrientationChanged = false;
     runtimePendingLocationGridChanged = false;
+    runtimePendingHomeCoordinatesChanged = false;
+    runtimePendingWeatherChanged = false;
 
     Serial.printf(
       "Runtime web: applying settings; "
       "timeZoneChanged=%d clockDisplayChanged=%d "
-      "orientationChanged=%d locationGridChanged=%d\n",
+      "orientationChanged=%d locationGridChanged=%d "
+      "homeCoordinatesChanged=%d weatherChanged=%d\n",
       timeZoneChanged,
       clockDisplayChanged,
       orientationChanged,
-      locationGridChanged
+      locationGridChanged,
+      homeCoordinatesChanged,
+      weatherChanged
     );
 
     if (timeZoneChanged) {
@@ -1727,6 +2115,18 @@ void serviceRuntimeConfigServer() {
     if (orientationChanged) {
       applyDisplayRotation();
       lcd.fillScreen(TFT_BLACK);
+    }
+
+    if (weatherChanged) {
+      weatherForecast.valid = false;
+
+      if (homeCoordinatesChanged) {
+        weatherRadarInfo.valid = false;
+      }
+
+      if (weatherFeatureAvailable()) {
+        requestWeatherForecastRefresh();
+      }
     }
 
     if (

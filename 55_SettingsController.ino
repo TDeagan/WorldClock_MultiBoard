@@ -132,6 +132,8 @@ bool applyLocationSettings(
   locationGridSettings =
     requestedLocation;
 
+  locationGridSettings.homeLocationConfigured = true;
+
   const bool saved =
     saveLocationGridSettings();
 
