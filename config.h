@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.1";
+  "5.1-rc1";
 
 // ============================================================
 // BOARD SELECTION
@@ -14,7 +14,7 @@ static constexpr const char *FIRMWARE_VERSION =
 #define BOARD_E32R28T           2
 #define BOARD_ELEGOO_EL_EB_009  3
 
-#define WORLDCLOCK_BOARD BOARD_HELTEC_WROOM_28
+#define WORLDCLOCK_BOARD BOARD_E32R28T
 
 #include "board_profiles.h"
 
@@ -929,6 +929,10 @@ bool loadWeatherSettings();
 bool saveWeatherSettings();
 
 // Saved-location weather and radar.
+bool coordinatesRepresentHomeLocation(
+  double latitude,
+  double longitude
+);
 bool homeLocationIsConfigured();
 bool weatherFeatureAvailable();
 bool weatherForecastAvailableForSavedLocation();

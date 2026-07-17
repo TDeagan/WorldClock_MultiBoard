@@ -107,8 +107,13 @@ String pageHeader(const String &title) {
             ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}.map-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.map-card{border:1px solid #40505f;border-radius:10px;padding:12px;background:#14212c}.map-card.selected{border-color:#ffd43b}.map-card h3{overflow-wrap:anywhere;margin:10px 0}.map-thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#05080b;border-radius:7px}.badge{display:inline-block;padding:4px 7px;border-radius:999px;margin:2px 4px 2px 0;font-size:.82rem;background:#40505f}.ok{background:#28603d}.bad{background:#7a2f3b}.selected-badge{background:#7b6418}.small-button{margin-top:9px;padding:8px;font-size:.9rem}.muted{opacity:.65}.radar-image{display:block;width:256px;max-width:100%;height:auto;margin:12px auto;background:#14212c;border:1px solid #40505f;border-radius:7px}</style><title>");
   page += htmlEscapeRuntime(title);
   page += F("</title></head><body><div class=\"card\"><div class=\"nav\">"
-            "<a href=\"/\">Settings</a><a href=\"/weather\">Weather</a>"
-            "<a href=\"/diagnostics\">Diagnostics</a>"
+            "<a href=\"/\">Settings</a>");
+
+  if (homeLocationIsConfigured()) {
+    page += F("<a href=\"/weather\">Weather</a>");
+  }
+
+  page += F("<a href=\"/diagnostics\">Diagnostics</a>"
             "<a href=\"/maps\">Maps</a></div><h1>");
   page += htmlEscapeRuntime(title);
   page += F("</h1>");
@@ -523,8 +528,12 @@ String runtimeConfigurationPage(
     "<input type=\"checkbox\" id=\"weatherEnabled\""
   );
 
-  if (weatherSettings.enabled) {
+  if (weatherSettings.enabled && homeLocationIsConfigured()) {
     page += F(" checked");
+  }
+
+  if (!homeLocationIsConfigured()) {
+    page += F(" disabled");
   }
 
   page += F(
@@ -551,7 +560,8 @@ String runtimeConfigurationPage(
     ">Celsius / km/h / millimeters</option>"
     "</select>"
     "<p class=\"note\">Weather uses the saved latitude and longitude. "
-    "The lower-left weather control appears after a location is saved.</p>"
+    "Coordinates 0,0 mean no location: weather is disabled and hidden. "
+    "Saving any other valid location automatically enables weather.</p>"
     "<label>Map overlays</label>"
     "<label class=\"check\">"
     "<input type=\"checkbox\" id=\"showSun\""
@@ -806,6 +816,22 @@ void handleRuntimeSave() {
   const bool requestedWeatherFahrenheit =
     runtimeServer.arg("weatherUnit") != "C";
 
+  const bool previouslyConfiguredLocation =
+    homeLocationIsConfigured();
+
+  const bool requestedLocationConfigured =
+    coordinatesRepresentHomeLocation(
+      requestedHomeLatitude,
+      requestedHomeLongitude
+    );
+
+  const bool effectiveWeatherEnabled =
+    !requestedLocationConfigured
+      ? false
+      : !previouslyConfiguredLocation
+          ? true
+          : requestedWeatherEnabled;
+
   runtimePendingTimeZoneChanged =
     requestedTimeZone !=
       timeSettings.timeZone ||
@@ -835,7 +861,8 @@ void handleRuntimeSave() {
       requestedHomeLongitude -
       locationGridSettings.homeLongitude
     ) > 0.0000005 ||
-    !locationGridSettings.homeLocationConfigured;
+    requestedLocationConfigured !=
+      previouslyConfiguredLocation;
 
   runtimePendingLocationGridChanged =
     runtimePendingHomeCoordinatesChanged ||
@@ -845,7 +872,7 @@ void handleRuntimeSave() {
       locationGridSettings.showCoordinateGrid;
 
   runtimePendingWeatherChanged =
-    requestedWeatherEnabled != weatherSettings.enabled ||
+    effectiveWeatherEnabled != weatherSettings.enabled ||
     requestedWeatherFahrenheit != weatherSettings.useFahrenheit ||
     runtimePendingHomeCoordinatesChanged;
 
@@ -870,9 +897,10 @@ void handleRuntimeSave() {
   locationGridSettings.homeLongitude =
     requestedHomeLongitude;
 
-  locationGridSettings.homeLocationConfigured = true;
+  locationGridSettings.homeLocationConfigured =
+    requestedLocationConfigured;
 
-  weatherSettings.enabled = requestedWeatherEnabled;
+  weatherSettings.enabled = effectiveWeatherEnabled;
   weatherSettings.useFahrenheit = requestedWeatherFahrenheit;
 
   locationGridSettings.showHomeMarker =
@@ -1049,6 +1077,8 @@ void handleTouchRecalibrate() {
       F("<div class=\"msg\">Calibration is starting on the World Clock display.</div>"
         "<p>Touch the four corner targets and then the center target. "
         "Hold the physical BOOT button for three seconds to cancel.</p>"
+        "<p>If touch was disabled during first setup, completing this "
+        "calibration re-enables all touchscreen functions.</p>"
         "<p>No Wi-Fi, map, location, overlay, clock, or other World Clock "
         "settings are erased by this operation.</p>"
         "<p>After completing or cancelling calibration, return to "
@@ -1104,7 +1134,11 @@ String buildWeatherPage(
 
   row(
     "Weather feature",
-    weatherSettings.enabled ? "Enabled" : "Disabled"
+    !homeLocationIsConfigured()
+      ? "Disabled - no saved location"
+      : weatherSettings.enabled
+          ? "Enabled"
+          : "Disabled"
   );
 
   row(
@@ -1118,19 +1152,20 @@ String buildWeatherPage(
   row("Radar cache", weatherRadarAgeText());
   page += F("</table>");
 
-  if (!weatherSettings.enabled) {
+  if (!homeLocationIsConfigured()) {
     page += F(
-      "<p>Weather is disabled. Enable it on the "
-      "<a href=\"/\">Settings</a> page.</p>"
+      "<p>Coordinates 0,0 mean no saved location. Enter and apply a "
+      "home latitude and longitude on the <a href=\"/\">Settings</a> "
+      "page. Weather will be enabled automatically.</p>"
     );
     page += pageFooter();
     return page;
   }
 
-  if (!homeLocationIsConfigured()) {
+  if (!weatherSettings.enabled) {
     page += F(
-      "<p>Enter and apply a home latitude and longitude on the "
-      "<a href=\"/\">Settings</a> page before requesting weather.</p>"
+      "<p>Weather is disabled. Enable it on the "
+      "<a href=\"/\">Settings</a> page.</p>"
     );
     page += pageFooter();
     return page;
@@ -1628,7 +1663,11 @@ String buildDiagnosticsPage() {
   );
   row(
     "Weather",
-    weatherSettings.enabled ? "Enabled" : "Disabled"
+    !homeLocationIsConfigured()
+      ? "Disabled - no saved location"
+      : weatherSettings.enabled
+          ? "Enabled"
+          : "Disabled"
   );
   row(
     "Weather units",
@@ -1712,7 +1751,12 @@ String buildDiagnosticsPage() {
       "<a class=\"button\" href=\""
     );
     page += TOUCH_RECALIBRATE_PATH;
-    page += F("\">Recalibrate Touch</a>");
+    page += F("\">");
+    page +=
+      touchCalibrationIsReady()
+        ? "Recalibrate Touch"
+        : "Enable / Calibrate Touch";
+    page += F("</a>");
   }
 
   page += pageFooter();

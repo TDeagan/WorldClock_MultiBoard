@@ -129,20 +129,44 @@ bool applyLocationSettings(
     return false;
   }
 
+  const bool previouslyConfigured =
+    homeLocationIsConfigured();
+
   locationGridSettings =
     requestedLocation;
 
-  locationGridSettings.homeLocationConfigured = true;
+  locationGridSettings.homeLocationConfigured =
+    coordinatesRepresentHomeLocation(
+      locationGridSettings.homeLatitude,
+      locationGridSettings.homeLongitude
+    );
 
-  const bool saved =
+  const bool weatherWasEnabled =
+    weatherSettings.enabled;
+
+  if (!locationGridSettings.homeLocationConfigured) {
+    weatherSettings.enabled = false;
+  } else if (!previouslyConfigured) {
+    // Entering the first real location automatically enables weather.
+    weatherSettings.enabled = true;
+  }
+
+  const bool locationSaved =
     saveLocationGridSettings();
 
+  const bool weatherSaved =
+    weatherWasEnabled == weatherSettings.enabled
+      ? true
+      : saveWeatherSettings();
+
   Serial.printf(
-    "Touch settings: location persistence=%d\n",
-    saved
+    "Touch settings: location persistence=%d weather=%d configured=%d\n",
+    locationSaved,
+    weatherSaved,
+    locationGridSettings.homeLocationConfigured
   );
 
-  return saved;
+  return locationSaved && weatherSaved;
 }
 
 

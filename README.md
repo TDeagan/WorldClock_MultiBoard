@@ -1,10 +1,10 @@
-# ESP32 World Clock v5.1
+# ESP32 World Clock v5.1-rc1
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 ILI9341 screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, and saved-location weather.
 
 The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts and a fixed-scale regional precipitation-radar image are cached on the card for immediate and offline display.
 
-Version 5.1 adds weather based on the saved latitude and longitude. Forecasts come from Open-Meteo and precipitation radar comes from RainViewer. Alpha2 corrected the ESP32 DRAM linker overflow found in alpha1 by reusing the project's existing PNG decoder. Alpha3 made RainViewer downloads tolerant of CDN redirects and streamed responses, reported the actual HTTP or transport failure, and added a cached human-readable location name using OpenStreetMap Nominatim with coordinate fallback. Alpha4 preserves the transparent portions of RainViewer radar tiles and shortens the coordinate fallback heading by omitting the word `deg`. Alpha5 replaces the enlarged low-resolution world-map background with cached, native-resolution OpenStreetMap raster tiles at the same Web-Mercator zoom as the radar layer. Alpha6 keeps the touchscreen radar page open indefinitely until the user presses **CLOCK** or otherwise explicitly leaves the page. The underlying v5.0 firmware and the WROOM and E32R28T board profiles have been tested on physical hardware; the v5.1 weather feature should be treated as an alpha feature until it has completed the same hardware test cycle. The Elegoo/CYD profile is included, but its touchscreen remains intentionally disabled until verified on that hardware.
+Version 5.1-rc1 adds saved-location forecasts, regional precipitation radar, cached OpenStreetMap basemap tiles, and a location-name heading. The release candidate also treats coordinates `0,0` as “no saved location,” disabling every weather control and network request until a real location is entered. On a virgin installation, required touch calibration times out after 60 seconds, disables touch, and continues to captive-portal Wi-Fi setup; touch can later be enabled from browser **Diagnostics**. The WROOM and E32R28T board profiles have been tested on physical hardware. The Elegoo/CYD profile is included, but its touchscreen remains intentionally disabled until verified on that hardware.
 
 ## Section 1: Using an Installed World Clock
 
@@ -22,14 +22,14 @@ The address is available only while the clock is connected to Wi-Fi. Open it fro
 
 ### First-time setup
 
-When a touch-enabled board has no saved calibration, touch calibration runs before Wi-Fi setup. Touch the four corner targets in order, then touch the center target for verification. A successful calibration is stored in the existing `touchtest` Preferences namespace and is reused on later boots.
+When a touch-enabled board has no saved calibration, touch calibration runs before Wi-Fi setup. Complete the four corner targets and center verification within 60 seconds. A successful calibration is stored in the existing `touchtest` Preferences namespace and is reused on later boots.
 
-If the touch controller is disconnected or unusable, hold the physical **BOOT** button for three seconds during calibration. The clock stores a touch-disabled state, waits for the button to be released, and then continues automatically into Wi-Fi setup. Wi-Fi and all other World Clock settings are preserved. Touch remains disabled on later boots until calibration is started from the browser **Diagnostics** page.
+If calibration is not completed within 60 seconds, or if the physical **BOOT** button is held for three seconds, the clock stores a touch-disabled state and continues automatically into Wi-Fi setup. Wi-Fi and all other World Clock settings are preserved. Touch remains disabled on later boots until **Enable / Calibrate Touch** is selected on the browser **Diagnostics** page and calibration is completed.
 
 When the clock has no saved Wi-Fi configuration, it starts its own temporary setup network after touch setup completes or is bypassed.
 
 1. Power on the clock with the microSD card installed.
-2. Complete the four-corner and center touch calibration, or hold **BOOT** for three seconds to disable touch and continue.
+2. Complete the four-corner and center touch calibration within 60 seconds. It times out automatically, or hold **BOOT** for three seconds, to disable touch and continue.
 3. On a phone, tablet, or computer, open the Wi-Fi settings.
 4. Connect to the open network named `WorldClock-XXXX`, where `XXXX` is unique to the clock.
 5. The World Clock Setup page should open automatically. If it does not, open a browser and enter the address shown on the clock display. This is normally `http://192.168.4.1`.
@@ -48,6 +48,7 @@ When the clock has no saved Wi-Fi configuration, it starts its own temporary set
     - Choose North or South and enter a latitude magnitude from 0 through 90.
     - Choose East or West and enter a longitude magnitude from 0 through 180.
     - This saved point is also used for weather and regional radar.
+    - `0,0` means no saved location; weather controls and retrieval are disabled until any other valid coordinate is saved.
 12. Enable any desired map overlays.
 13. Select **Save and connect**.
 
@@ -124,7 +125,7 @@ The **Forget Wi-Fi and start setup** control erases the saved network credential
 
 ### Using saved-location weather
 
-When weather is enabled and a home latitude and longitude have been saved, a weather control appears in the lower-left corner of the world map. Before the first forecast arrives it displays `WX --`; afterward it displays a compact condition icon and the current temperature. Tap this control to open the Weather page.
+When weather is enabled and a nonzero home latitude and longitude have been saved, a weather control appears in the lower-left corner of the world map. The coordinate pair `0,0` is reserved to mean “no saved location”; in that state the device weather button, browser Weather navigation link, refresh actions, and background weather requests are disabled. Saving any other valid location through the browser, captive portal, or touchscreen automatically enables weather. Before the first forecast arrives the control displays `WX --`; afterward it displays a compact condition icon and the current temperature. Tap this control to open the Weather page.
 
 The touchscreen Weather page names the saved location in its header when a reverse-geocoded name is available. Until then, it shows the saved coordinates. The page shows:
 
@@ -229,7 +230,7 @@ The Diagnostics page reports information useful for troubleshooting, including:
 - Last system error and error detail
 - Touch hardware, calibration, rotation, state, and pressure-threshold status
 
-The browser Diagnostics page includes **Recalibrate Touch**. Selecting it starts four-corner calibration on the World Clock display. Calibration changes only the touch record in the `touchtest` namespace; it does not erase Wi-Fi, maps, location, overlays, clock settings, or other World Clock preferences. Hold **BOOT** for three seconds to cancel. When an earlier calibration exists, cancelling retains it. When no calibration exists, cancelling leaves touch disabled.
+The browser Diagnostics page includes **Recalibrate Touch** when touch is active and **Enable / Calibrate Touch** when it is disabled or uncalibrated. Selecting it starts four-corner calibration on the World Clock display. Calibration changes only the touch record in the `touchtest` namespace; it does not erase Wi-Fi, maps, location, overlays, clock settings, or other World Clock preferences. Hold **BOOT** for three seconds to cancel. When an earlier calibration exists, cancelling retains it. When no calibration exists, cancelling leaves touch disabled.
 
 Use the browser's **Refresh** link to update the values.
 
@@ -288,7 +289,8 @@ Use the browser's **Refresh** link to update the values.
 **The weather button does not appear**
 
 - Confirm that a latitude and longitude have been applied and saved.
-- Confirm that weather is enabled on the browser Settings page.
+- Confirm that the saved coordinates are not `0,0`; that pair intentionally disables all weather functions.
+- After entering a real location, weather is enabled automatically. It can then be disabled manually on the browser Settings page.
 - The on-screen control is hidden when touch is disabled because it cannot be opened from the display; use the browser Weather page instead.
 
 **Forecast or radar will not update**
@@ -333,7 +335,7 @@ Install:
 3. **LovyanGFX** through Arduino Library Manager
 4. **PNGdec** by Larry Bank/BitBank through Arduino Library Manager
 
-The v5.1 development baseline supplied for this release uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
+The v5.1-rc1 development baseline supplied for this release uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
 
 The following headers are supplied by the ESP32 Arduino core and should not normally be installed separately:
 
@@ -408,7 +410,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.1";
+  "5.1-rc1";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -510,7 +512,7 @@ See `Map requirements.txt` for the complete checklist.
 11. Open Serial Monitor at 115200 baud to observe startup, Wi-Fi, NTP, SD, map-cache, weather, radar, and web-server messages.
 12. Reset or power-cycle the board after the upload if it does not restart automatically.
 
-On first boot, the clock should display its splash screen, run integrated touch calibration when needed, and then start the `WorldClock-XXXX` setup network. Holding **BOOT** for three seconds during calibration disables touch and still allows Wi-Fi setup to continue.
+On first boot, the clock should display its splash screen, run integrated touch calibration when needed, and then start the `WorldClock-XXXX` setup network. If calibration is not completed within 60 seconds, or **BOOT** is held for three seconds, touch is disabled and Wi-Fi setup continues. After Wi-Fi configuration, browser Diagnostics can enable touch and launch calibration again.
 
 ### Board-profile notes
 
@@ -602,7 +604,7 @@ Production revisions can differ. If the display is correctly landscape but upsid
 
 **Weather compilation or runtime problems**
 
-- No ArduinoJson installation is required; v5.1 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
+- No ArduinoJson installation is required; v5.1-rc1 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
 - Confirm that `HTTPClient.h` and `WiFiClientSecure.h` are available from the selected ESP32 board package.
 - Confirm that the partition scheme still provides enough application space after adding `67_Weather.ino`.
 - Persistent weather, radar, and basemap caching requires a writable microSD card; the firmware creates `/weather` automatically.

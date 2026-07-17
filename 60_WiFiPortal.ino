@@ -688,7 +688,16 @@ void handleConfigurationSave() {
   locationGridSettings.homeLongitude =
     requestedHomeLongitude;
 
-  locationGridSettings.homeLocationConfigured = true;
+  locationGridSettings.homeLocationConfigured =
+    coordinatesRepresentHomeLocation(
+      requestedHomeLatitude,
+      requestedHomeLongitude
+    );
+
+  // A real first location enables weather automatically. The 0,0 sentinel
+  // keeps every weather service and control disabled.
+  weatherSettings.enabled =
+    locationGridSettings.homeLocationConfigured;
 
   locationGridSettings.showHomeMarker =
     portalServer.hasArg("showHomeMarker");
@@ -705,10 +714,14 @@ void handleConfigurationSave() {
   const bool locationSaved =
     saveLocationGridSettings();
 
+  const bool weatherSaved =
+    saveWeatherSettings();
+
   if (
     !timeSaved ||
     !overlaysSaved ||
-    !locationSaved
+    !locationSaved ||
+    !weatherSaved
   ) {
     portalServer.send(
       500,
@@ -1405,6 +1418,10 @@ bool loadLocationGridSettings() {
     preferences.getBool(
       PREF_KEY_HOME_LOCATION_CONFIGURED,
       inferredConfigured
+    ) &&
+    coordinatesRepresentHomeLocation(
+      locationGridSettings.homeLatitude,
+      locationGridSettings.homeLongitude
     );
 
   preferences.end();

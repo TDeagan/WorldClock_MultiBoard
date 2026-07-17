@@ -1961,6 +1961,11 @@ bool loadWeatherSettings() {
 
   if (!preferences.begin(PREF_NAMESPACE, true)) {
     weatherSettings = WeatherSettings();
+
+    if (!homeLocationIsConfigured()) {
+      weatherSettings.enabled = false;
+    }
+
     return false;
   }
 
@@ -1975,6 +1980,11 @@ bool loadWeatherSettings() {
   );
 
   preferences.end();
+
+  if (!homeLocationIsConfigured()) {
+    weatherSettings.enabled = false;
+  }
+
   return true;
 }
 
@@ -1999,15 +2009,35 @@ bool saveWeatherSettings() {
   return enabledSaved && unitSaved;
 }
 
+bool coordinatesRepresentHomeLocation(
+  double latitude,
+  double longitude
+) {
+  if (
+    !isfinite(latitude) ||
+    latitude < -90.0 ||
+    latitude > 90.0 ||
+    !isfinite(longitude) ||
+    longitude < -180.0 ||
+    longitude > 180.0
+  ) {
+    return false;
+  }
+
+  // The project uses 0,0 as the sentinel for "no saved location."
+  // This intentionally makes Null Island unavailable as a weather location.
+  return
+    fabs(latitude) > 0.0000005 ||
+    fabs(longitude) > 0.0000005;
+}
+
 bool homeLocationIsConfigured() {
   return
     locationGridSettings.homeLocationConfigured &&
-    isfinite(locationGridSettings.homeLatitude) &&
-    locationGridSettings.homeLatitude >= -90.0 &&
-    locationGridSettings.homeLatitude <= 90.0 &&
-    isfinite(locationGridSettings.homeLongitude) &&
-    locationGridSettings.homeLongitude >= -180.0 &&
-    locationGridSettings.homeLongitude <= 180.0;
+    coordinatesRepresentHomeLocation(
+      locationGridSettings.homeLatitude,
+      locationGridSettings.homeLongitude
+    );
 }
 
 bool weatherFeatureAvailable() {
@@ -2064,7 +2094,11 @@ void initializeWeatherService() {
   radarLastError = "";
   weatherBaseMapLastError = "";
 
-  if (!sdReady || !ensureWeatherDirectory()) {
+  if (
+    !homeLocationIsConfigured() ||
+    !sdReady ||
+    !ensureWeatherDirectory()
+  ) {
     weatherForecast.valid = false;
     weatherRadarInfo.valid = false;
     return;
@@ -2122,6 +2156,13 @@ void serviceWeather() {
   if (!weatherFeatureAvailable()) {
     weatherRefreshRequested = false;
     radarRefreshRequested = false;
+    weatherForecast.valid = false;
+    weatherRadarInfo.valid = false;
+
+    if (touchUiWeatherPageIsOpen()) {
+      closeTouchUi(true);
+    }
+
     return;
   }
 

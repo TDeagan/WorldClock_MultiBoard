@@ -6,9 +6,10 @@
 // saved calibration exists. Four corner targets establish axis selection,
 // direction, and range; a center target verifies the generated mapping before
 // the existing TouchCalibration record is written to the "touchtest"
-// Preferences namespace. Holding BOOT for three seconds cancels calibration;
-// when no prior calibration exists, that choice leaves touch disabled until
-// calibration is launched again from browser Diagnostics.
+// Preferences namespace. Holding BOOT for three seconds cancels calibration.
+// On a virgin installation, calibration also times out after 60 seconds if no
+// touch is detected; touch is then disabled and startup continues to the
+// captive portal. Browser Diagnostics can launch calibration later.
 // ============================================================
 
 namespace {
@@ -19,10 +20,13 @@ static constexpr int TOUCH_CALIBRATION_TARGET_MARGIN = 24;
 static constexpr int TOUCH_CALIBRATION_TARGET_RADIUS = 10;
 static constexpr int TOUCH_CALIBRATION_CENTER_TOLERANCE = 32;
 static constexpr int TOUCH_CALIBRATION_MINIMUM_RAW_SPAN = 500;
+static constexpr unsigned long TOUCH_CALIBRATION_FIRST_BOOT_TIMEOUT_MS = 60000UL;
 
 bool calibrationBypassTriggered = false;
+bool calibrationTimedOut = false;
 bool calibrationHadSavedCalibration = false;
 unsigned long calibrationBypassPressedAt = 0;
+unsigned long calibrationFirstBootStartedAt = 0;
 
 struct TouchCalibrationPoint {
   int screenX = 0;
@@ -40,7 +44,10 @@ void drawCalibrationText(
 );
 void drawCalibrationTarget(int x, int y, uint16_t color);
 void drawCalibrationBypassHint();
-void resetCalibrationBypassMonitor(bool hadSavedCalibration);
+void resetCalibrationBypassMonitor(
+  bool hadSavedCalibration,
+  bool firstBoot
+);
 bool calibrationBypassRequested();
 bool calibrationDelayWithBypass(unsigned long durationMs);
 bool waitForRawTouchRelease();
@@ -214,22 +221,48 @@ void drawCalibrationBypassHint() {
     TFT_BLACK
   );
 
+  String hint;
+
+  if (calibrationHadSavedCalibration) {
+    hint =
+      CONFIG_BUTTON_PIN >= 0
+        ? "Hold BOOT 3 sec to cancel"
+        : "Touch targets to recalibrate";
+  } else {
+    hint =
+      CONFIG_BUTTON_PIN >= 0
+        ? "Complete within 60 sec; BOOT disables"
+        : "Complete calibration within 60 sec";
+  }
+
   lcd.drawString(
-    calibrationHadSavedCalibration
-      ? "Hold BOOT 3 sec to cancel"
-      : "Hold BOOT 3 sec to disable touch",
+    hint,
     lcd.width() / 2,
     176
   );
 }
 
 void resetCalibrationBypassMonitor(
-  bool hadSavedCalibration
+  bool hadSavedCalibration,
+  bool firstBoot
 ) {
   calibrationBypassTriggered = false;
+  calibrationTimedOut = false;
   calibrationHadSavedCalibration =
     hadSavedCalibration;
   calibrationBypassPressedAt = 0;
+  calibrationFirstBootStartedAt =
+    firstBoot && !hadSavedCalibration
+      ? millis()
+      : 0;
+
+  if (
+    calibrationFirstBootStartedAt == 0 &&
+    firstBoot &&
+    !hadSavedCalibration
+  ) {
+    calibrationFirstBootStartedAt = 1;
+  }
 
   if (CONFIG_BUTTON_PIN >= 0) {
     pinMode(
@@ -240,11 +273,22 @@ void resetCalibrationBypassMonitor(
 }
 
 bool calibrationBypassRequested() {
+  if (calibrationBypassTriggered) {
+    return true;
+  }
+
   if (
-    calibrationBypassTriggered ||
-    CONFIG_BUTTON_PIN < 0
+    calibrationFirstBootStartedAt != 0 &&
+    millis() - calibrationFirstBootStartedAt >=
+      TOUCH_CALIBRATION_FIRST_BOOT_TIMEOUT_MS
   ) {
-    return calibrationBypassTriggered;
+    calibrationTimedOut = true;
+    calibrationBypassTriggered = true;
+    return true;
+  }
+
+  if (CONFIG_BUTTON_PIN < 0) {
+    return false;
   }
 
   if (
@@ -296,25 +340,29 @@ bool finishCalibrationBypass() {
       ? true
       : setTouchCalibrationBypassed(true);
 
-  lcd.fillScreen(
-    TFT_BLACK
-  );
+  lcd.fillScreen(TFT_BLACK);
 
   drawCalibrationText(
     calibrationHadSavedCalibration
       ? "Recalibration cancelled"
-      : "Touch disabled",
-    "Release BOOT to continue",
+      : calibrationTimedOut
+          ? "Touch setup timed out"
+          : "Touch disabled",
+    calibrationTimedOut
+      ? "Continuing to Wi-Fi setup"
+      : "Release BOOT to continue",
     calibrationHadSavedCalibration
       ? TFT_YELLOW
       : TFT_RED
   );
 
-  while (
-    CONFIG_BUTTON_PIN >= 0 &&
-    digitalRead(CONFIG_BUTTON_PIN) == LOW
-  ) {
-    delay(10);
+  if (!calibrationTimedOut) {
+    while (
+      CONFIG_BUTTON_PIN >= 0 &&
+      digitalRead(CONFIG_BUTTON_PIN) == LOW
+    ) {
+      delay(10);
+    }
   }
 
   delay(80);
@@ -326,7 +374,7 @@ bool finishCalibrationBypass() {
     calibrationHadSavedCalibration
       ? "Returning without changes"
       : persisted
-          ? "Use browser Diagnostics to retry"
+          ? "Use browser Diagnostics to enable"
           : "Disabled for this boot only",
     calibrationHadSavedCalibration || persisted
       ? TFT_YELLOW
@@ -336,9 +384,13 @@ bool finishCalibrationBypass() {
   Serial.println(
     calibrationHadSavedCalibration
       ? "Touch recalibration cancelled; previous calibration retained."
-      : persisted
-          ? "Touch calibration bypassed; touch disabled until browser Diagnostics recalibration."
-          : "Touch calibration bypassed for this boot; bypass preference could not be saved."
+      : calibrationTimedOut
+          ? persisted
+              ? "Touch calibration timed out after 60 seconds; touch disabled until browser Diagnostics calibration."
+              : "Touch calibration timed out; bypass preference could not be saved."
+          : persisted
+              ? "Touch calibration bypassed; touch disabled until browser Diagnostics recalibration."
+              : "Touch calibration bypassed for this boot; bypass preference could not be saved."
   );
 
   delay(1200);
@@ -833,7 +885,8 @@ bool runIntegratedTouchCalibration(
     touchCalibrationIsReady();
 
   resetCalibrationBypassMonitor(
-    hadSavedCalibration
+    hadSavedCalibration,
+    firstBoot
   );
 
   for (;;) {
