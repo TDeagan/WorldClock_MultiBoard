@@ -1,10 +1,10 @@
-# ESP32 World Clock v5.1.1
+# ESP32 World Clock v5.2-alpha1
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 TFT screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, and saved-location weather.
 
 The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts and a fixed-scale regional precipitation-radar image are cached on the card for immediate and offline display.
 
-Version 5.1.1 adds saved-location forecasts, regional precipitation radar, cached OpenStreetMap basemap tiles, and a location-name heading. Coordinates `0,0` are treated as “no saved location,” disabling every weather control and network request until a real location is entered. On a virgin installation, required touch calibration times out after 60 seconds, disables touch, and continues to captive-portal Wi-Fi setup; touch can later be enabled from browser **Diagnostics**. The WROOM, E32R28T, and AITRIP ESP32-2432S028R dual-USB CYD profiles have all been tested on physical hardware. Version 5.1.1 replaces the unused Elegoo profile with the dedicated AITRIP profile using an ST7789 display and enabled XPT2046 calibration.
+Version 5.2-alpha1 adds per-board display tuning for the three physically tested panels. Backlight brightness is driven by PWM, each board profile supplies independent daylight-map and night-map gamma defaults, and a display-test screen provides grayscale, near-black, near-white, and RGB gradients for comparison. Gamma correction is applied while RGB565 map caches are generated, so the map can be tuned without changing controller registers or source PNG files. Existing Wi-Fi, touch, weather, map-selection, and other World Clock settings are preserved.
 
 ## Section 1: Using an Installed World Clock
 
@@ -71,11 +71,12 @@ Tap the bottom status bar on the clock display to open the touchscreen menu. The
 - A Zoom R4-style on-screen keyboard with a selected character cell and four bottom controls: Cancel, left, right, and check
 - Saved-network removal with confirmation and automatic restart into setup mode
 - Touch, Wi-Fi, SD-card, NTP, and selected-map diagnostics
+- A full-screen display test with persistent touchscreen backlight controls
 - Touch recalibration from Diagnostics without erasing Wi-Fi or other settings
 - A saved-location weather page with current conditions and a three-day forecast
 - A fixed-scale regional precipitation-radar page centered on the saved location
 
-Settings changed on the touchscreen use the same saved Preferences values as the browser controls. Most touchscreen menus return to the clock automatically after one minute without activity. The radar page is the exception: it remains displayed until the user presses **CLOCK** or explicitly navigates away.
+Settings changed on the touchscreen use the same saved Preferences values as the browser controls. Most touchscreen menus return to the clock automatically after one minute without activity. The radar and display-test pages are exceptions: they remain displayed until the user presses **CLOCK** or explicitly navigates away.
 
 ### Changing Wi-Fi from the touchscreen
 
@@ -108,6 +109,8 @@ The Settings page shows the active configuration and permits changes to:
 - 12-hour or 24-hour clock format
 - Seconds display
 - Normal or 180-degree display orientation
+- Backlight brightness
+- Independent daylight-map and night-map gamma
 - Home latitude and longitude
 - Home-location marker
 - 30-degree coordinate grid
@@ -119,7 +122,9 @@ The Settings page shows the active configuration and permits changes to:
 - One-orbit ISS ground track
 - Solid or dotted ISS track
 
-Select **Apply settings now** after making changes. Most changes are applied immediately without rebooting.
+Select **Apply settings now** after making changes. Most changes are applied immediately without rebooting. Backlight changes take effect immediately. Changing either map gamma value selects a new board-specific cache name and rebuilds the required 320 × 240 RGB565 map cache from the original PNG; the display may show a cache-building status message while this completes.
+
+Gamma `1.00` leaves map pixel values unchanged. A value above `1.00` darkens midtones; a value below `1.00` lifts shadow detail. Day and night values are independent because a panel that looks good in daylight may crush the night map, or a washed-out panel may need a darker daylight map while retaining its night-map detail.
 
 The **Forget Wi-Fi and start setup** control erases the saved network credentials and restarts the clock in setup mode. It asks for confirmation before doing so.
 
@@ -179,10 +184,12 @@ Available controls include:
 - **Rebuild this cache** — deletes and recreates that map's RGB565 cache.
 - **Validate every PNG with CRC** — performs a full validation of all listed PNG files.
 - **Rebuild all daylight caches** — rebuilds caches for every valid daylight map.
-- **Rebuild shared night cache** — rebuilds `/earth_night.rgb565`.
-- **Rebuild every cache** — rebuilds all daylight caches and the shared night cache.
+- **Rebuild shared night cache** — rebuilds the active board/gamma-specific night cache.
+- **Rebuild every cache** — rebuilds all daylight caches and the active night cache using the current gamma values.
 
 The selected daylight filename is stored in nonvolatile memory. If that file is later missing or invalid, the clock automatically chooses `earth_day.png` when available; otherwise it chooses the alphabetically first valid daylight PNG.
+
+Version 5.2 cache filenames include the cache-format version, board profile, map type, and gamma value. This prevents a cache tuned for one panel from being reused on another panel and automatically makes pre-v5.2 caches obsolete without deleting them. Old `.rgb565` files may be removed manually after the new caches have been verified.
 
 The page displays up to the first 20 daylight PNG files in alphabetical order.
 
@@ -229,8 +236,11 @@ The Diagnostics page reports information useful for troubleshooting, including:
 - ISS data and orbit-track status
 - Last system error and error detail
 - Touch hardware, calibration, rotation, state, and pressure-threshold status
+- Active backlight brightness, daylight gamma, night gamma, cache-format version, and tuned cache paths
 
 The browser Diagnostics page includes **Recalibrate Touch** when touch is active and **Enable / Calibrate Touch** when it is disabled or uncalibrated. Selecting it starts four-corner calibration on the World Clock display. Calibration changes only the touch record in the `touchtest` namespace; it does not erase Wi-Fi, maps, location, overlays, clock settings, or other World Clock preferences. Hold **BOOT** for three seconds to cancel. When an earlier calibration exists, cancelling retains it. When no calibration exists, cancelling leaves touch disabled.
+
+The browser Diagnostics page also includes **Display Test**. It places a full-screen calibration pattern on the clock display containing 16-step grayscale, near-black and near-white patches, and red/green/blue gradients. The touchscreen **LIGHT −** and **LIGHT +** controls change and save PWM brightness while the pattern remains visible. Use **BACK** to return to touchscreen Diagnostics or **CLOCK** to return directly to the world clock. The display-test page does not time out automatically. The browser can also return the display to the clock when touch is unavailable.
 
 Use the browser's **Refresh** link to update the values.
 
@@ -260,6 +270,14 @@ Use the browser's **Refresh** link to update the values.
 - Stay connected to `WorldClock-XXXX`, even if the phone reports that the network has no internet access.
 - Disable mobile-data switching temporarily if the phone immediately leaves the setup network.
 - Manually open the IP address shown on the clock, normally `http://192.168.4.1`.
+
+**The display is too washed out or the night map is too dark**
+
+- Open browser **Diagnostics → Display Test** and compare the grayscale and near-black patches.
+- Adjust backlight brightness first; this affects the entire interface immediately.
+- Adjust daylight and night gamma separately on the browser Settings page.
+- Use a higher gamma to darken map midtones and a lower gamma to lift shadow detail.
+- Allow the clock to finish rebuilding the board-specific map caches after applying gamma changes.
 
 **The display says that the map is unavailable**
 
@@ -296,7 +314,7 @@ Use the browser's **Refresh** link to update the values.
 **Forecast or radar will not update**
 
 - Confirm that Wi-Fi has internet access and working DNS.
-- Open Diagnostics and review the Weather error and Radar error rows. Alpha4 reports the returned HTTP status or ESP32 transport error for failed radar-image requests instead of only displaying a generic download failure.
+- Open Diagnostics and review the Weather error and Radar error rows. The firmware reports the returned HTTP status or ESP32 transport error for failed radar-image requests instead of only displaying a generic download failure.
 - Confirm that the microSD card is mounted. Forecasts can be retrieved without the card, but persistent forecast and radar caching require it.
 - A failed request leaves the last successful cached data in place. Wait at least one minute before repeated retries.
 
@@ -313,6 +331,8 @@ The included board profiles support:
 | `BOARD_AITRIP_ESP32_2432S028R` | AITRIP ESP32-2432S028R dual-USB CYD | 4 MB | Hardware tested |
 
 The profiles define the TFT pins, microSD pins, panel geometry, rotation, RGB/BGR order, display inversion, backlight polarity, BOOT/configuration-button pin, and nominal flash size.
+Version 5.2 profiles also define PWM backlight and independent daylight/night map-gamma defaults. Saved user values override those defaults.
+The alpha1 values are starting points based on the observed relative panel behavior and should be verified on all three physical boards before promotion to a final v5.2 release.
 
 Other ESP32 display boards may work after adding or modifying a profile in `board_profiles.h`, but they are not preconfigured.
 
@@ -335,7 +355,7 @@ Install:
 3. **LovyanGFX** through Arduino Library Manager
 4. **PNGdec** by Larry Bank/BitBank through Arduino Library Manager
 
-The v5.1.1 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
+The v5.2-alpha1 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
 
 The following headers are supplied by the ESP32 Arduino core and should not normally be installed separately:
 
@@ -410,7 +430,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.1.1";
+  "5.2-alpha1";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -464,10 +484,9 @@ Additional daylight maps may be added:
 Do not create the cache files manually. The firmware generates files such as:
 
 ```text
-/maps/earth_day.rgb565
-/maps/earth_day_political.rgb565
-/maps/earth_day_relief_320x240.rgb565
-/earth_night.rgb565
+/maps/earth_day.wc2-b1-d100.rgb565
+/maps/earth_day_political.wc2-b1-d100.rgb565
+/earth_night.wc2-b1-n100.rgb565
 /weather/forecast.bin
 /weather/radar.png
 /weather/radar.bin
@@ -475,6 +494,8 @@ Do not create the cache files manually. The firmware generates files such as:
 ```
 
 Each valid 320 × 240 RGB565 map cache is 153,600 bytes. The `/weather` directory and its files are created automatically after weather is used; they should not be preloaded or edited manually.
+
+In the cache examples, `wc2` is the cache-format version, `b1` is the board-profile identifier, `d` or `n` identifies daylight or night, and `100` means gamma 1.00. Actual filenames reflect the selected board and current gamma values.
 
 Older installations that contain `/earth_day.png` in the card root are migrated automatically to `/maps/earth_day.png` when possible.
 
@@ -525,6 +546,7 @@ The included profile uses:
 - Normal RGB order
 - Nominal 8 MB flash
 - XPT2046 touch and integrated calibration verified on physical hardware
+- Default brightness `245/255`, daylight gamma `1.00`, night gamma `1.00`
 
 #### E32R28T profile
 
@@ -535,6 +557,7 @@ The included profile preserves the settings proven on this board:
 - Alternate RGB order
 - Nominal 4 MB flash
 - XPT2046 touch and integrated calibration verified on physical hardware
+- Default brightness `230/255`, daylight gamma `1.20`, night gamma `1.00`
 
 These unusual values are intentional.
 
@@ -550,6 +573,7 @@ This profile is intended for the AITRIP board with both USB-C and micro-USB conn
 - microSD pins `CLK 18`, `MISO 19`, `MOSI 23`, `CS 5`
 - Nominal 4 MB flash
 - Integrated first-boot touch calibration enabled and verified on physical hardware
+- Default brightness `255/255`, daylight gamma `1.00`, night gamma `0.82`
 
 The ESP32-2432S028 name is used for several production revisions. This profile specifically targets the dual-USB ST7789 revision; the single-micro-USB ILI9341 version should use a different panel profile. If the image is landscape but upside down during validation, change the AITRIP profile rotation from `1` to `3`.
 
@@ -606,7 +630,7 @@ The ESP32-2432S028 name is used for several production revisions. This profile s
 
 **Weather compilation or runtime problems**
 
-- No ArduinoJson installation is required; v5.1.1 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
+- No ArduinoJson installation is required; v5.2-alpha1 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
 - Confirm that `HTTPClient.h` and `WiFiClientSecure.h` are available from the selected ESP32 board package.
 - Confirm that the partition scheme still provides enough application space after adding `67_Weather.ino`.
 - Persistent weather, radar, and basemap caching requires a writable microSD card; the firmware creates `/weather` automatically.
@@ -615,5 +639,7 @@ The ESP32-2432S028 name is used for several production revisions. This profile s
 ### Extending the project
 
 To support another board, add a `BoardProfile` entry in `board_profiles.h`, assign a new board identifier in `config.h`, and add the matching selection case for `ACTIVE_BOARD`. Keep application behavior separate from board-specific pins and display characteristics.
+
+A new profile should also specify `defaultBacklightBrightness`, `defaultDayMapGamma`, and `defaultNightMapGamma`. Start at gamma `1.00`, use the Display Test page to select a comfortable backlight level, then compare actual day and night maps before changing the gamma defaults. Controller gamma, VCOM, and panel power registers remain at the LovyanGFX defaults in this release.
 
 When changing display geometry or map dimensions, review all map-coordinate, overlay, cache-size, and status-layout constants together. The current renderer and PNG decoder explicitly assume a 320 × 240 source map and 16-bit RGB565 cache files.

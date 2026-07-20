@@ -53,6 +53,15 @@ E32R28T_Display::E32R28T_Display() {
   p.bus_shared = false;
 
   panel.config(p);
+
+  auto l = light.config();
+  l.pin_bl = TFT_BL;
+  l.invert = !ACTIVE_BOARD.backlightActiveHigh;
+  l.freq = 44100;
+  l.pwm_channel = 7;
+  light.config(l);
+  panel.setLight(&light);
+
   setPanel(&panel);
 }
 
@@ -84,7 +93,8 @@ bool pngValidationOnly = false;
 
 String selectedDayMapFilename = DEFAULT_DAY_MAP_FILENAME;
 String activeDayPngPath = String(DAY_MAP_DIRECTORY) + "/" + DEFAULT_DAY_MAP_FILENAME;
-String activeDayRawPath = String(DAY_MAP_DIRECTORY) + "/earth_day.rgb565";
+String activeDayRawPath;
+String activeNightRawPath;
 
 unsigned long lastMapUpdate = 0;
 unsigned long lastClockUpdate = 0;
@@ -103,3 +113,46 @@ bool issTrackValid = false;
 
 SystemStatus systemStatus;
 unsigned long lastNtpRetry = 0;
+
+void applyBacklightBrightness() {
+  lcd.setBrightness(displaySettings.brightness);
+}
+
+
+void setDisplayBrightness(
+  uint8_t brightness,
+  bool persist
+) {
+  displaySettings.brightness = constrain(
+    brightness,
+    DISPLAY_BRIGHTNESS_MIN,
+    DISPLAY_BRIGHTNESS_MAX
+  );
+
+  applyBacklightBrightness();
+
+  if (persist) {
+    saveDisplaySettings();
+  }
+}
+
+
+String displayBrightnessText() {
+  const uint16_t percent =
+    (static_cast<uint16_t>(displaySettings.brightness) * 100U + 127U) / 255U;
+
+  return String(percent) + "% (" + String(displaySettings.brightness) + "/255)";
+}
+
+
+String mapGammaText(uint16_t gammaHundredths) {
+  char text[12];
+  snprintf(
+    text,
+    sizeof(text),
+    "%u.%02u",
+    gammaHundredths / 100U,
+    gammaHundredths % 100U
+  );
+  return String(text);
+}

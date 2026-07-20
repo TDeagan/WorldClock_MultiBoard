@@ -1,5 +1,74 @@
 namespace {
 
+uint8_t pngGamma5[32];
+uint8_t pngGamma6[64];
+uint16_t pngCacheGammaHundredths = 100;
+
+void preparePngGammaTables(uint16_t gammaHundredths) {
+  pngCacheGammaHundredths = constrain(
+    gammaHundredths,
+    MAP_GAMMA_MIN,
+    MAP_GAMMA_MAX
+  );
+
+  const float gamma =
+    static_cast<float>(pngCacheGammaHundredths) / 100.0f;
+
+  for (int value = 0; value < 32; ++value) {
+    const float normalized =
+      static_cast<float>(value) / 31.0f;
+
+    pngGamma5[value] = static_cast<uint8_t>(
+      lroundf(powf(normalized, gamma) * 31.0f)
+    );
+  }
+
+  for (int value = 0; value < 64; ++value) {
+    const float normalized =
+      static_cast<float>(value) / 63.0f;
+
+    pngGamma6[value] = static_cast<uint8_t>(
+      lroundf(powf(normalized, gamma) * 63.0f)
+    );
+  }
+}
+
+void applyPngGammaToLine() {
+  if (pngCacheGammaHundredths == 100) {
+    return;
+  }
+
+  for (int x = 0; x < MAP_W; ++x) {
+    const uint16_t pixel = pngLine[x];
+    const uint8_t red = pngGamma5[(pixel >> 11) & 0x1F];
+    const uint8_t green = pngGamma6[(pixel >> 5) & 0x3F];
+    const uint8_t blue = pngGamma5[pixel & 0x1F];
+
+    pngLine[x] = static_cast<uint16_t>(
+      (static_cast<uint16_t>(red) << 11) |
+      (static_cast<uint16_t>(green) << 5) |
+      blue
+    );
+  }
+}
+
+String mapCacheVariantSuffix(
+  char mapKind,
+  uint16_t gammaHundredths
+) {
+  char suffix[40];
+  snprintf(
+    suffix,
+    sizeof(suffix),
+    ".wc%u-b%u-%c%03u.rgb565",
+    MAP_CACHE_FORMAT_VERSION,
+    WORLDCLOCK_BOARD,
+    mapKind,
+    gammaHundredths
+  );
+  return String(suffix);
+}
+
 String fileNameOnly(const String &path) {
   const int slash = path.lastIndexOf('/');
   return slash >= 0 ? path.substring(slash + 1) : path;
@@ -234,6 +303,8 @@ int pngDrawCallback(PNGDRAW *draw) {
     return 1;
   }
 
+  applyPngGammaToLine();
+
   if (pngWriteFailed || !pngOutputFile) {
     pngWriteFailed = true;
     return 0;
@@ -451,7 +522,22 @@ String dayMapCachePath(
 ) {
   String base = filename;
   base.remove(base.length() - 4);
-  return String(DAY_MAP_DIRECTORY) + "/" + base + ".rgb565";
+  return
+    String(DAY_MAP_DIRECTORY) + "/" + base +
+    mapCacheVariantSuffix(
+      'd',
+      displaySettings.dayMapGamma
+    );
+}
+
+
+String nightMapCachePath() {
+  return
+    String("/earth_night") +
+    mapCacheVariantSuffix(
+      'n',
+      displaySettings.nightMapGamma
+    );
 }
 
 
@@ -571,6 +657,9 @@ bool loadSelectedDayMapPreference() {
 
   if (!preferences.begin(PREF_NAMESPACE, true)) {
     selectedDayMapFilename = DEFAULT_DAY_MAP_FILENAME;
+    activeDayPngPath = dayMapPngPath(selectedDayMapFilename);
+    activeDayRawPath = dayMapCachePath(selectedDayMapFilename);
+    activeNightRawPath = nightMapCachePath();
     return false;
   }
 
@@ -591,6 +680,9 @@ bool loadSelectedDayMapPreference() {
 
   activeDayRawPath =
     dayMapCachePath(selectedDayMapFilename);
+
+  activeNightRawPath =
+    nightMapCachePath();
 
   return true;
 }
@@ -651,7 +743,8 @@ bool ensureSelectedDayMapAvailable(
 bool convertPngToRaw(
   const char *pngPath,
   const char *rawPath,
-  const String &screenLabel
+  const String &screenLabel,
+  uint16_t gammaHundredths
 ) {
   showStatus(
     screenLabel,
@@ -675,6 +768,7 @@ bool convertPngToRaw(
 
   pngValidationOnly = false;
   pngWriteFailed = false;
+  preparePngGammaTables(gammaHundredths);
 
   int result = png.open(
     pngPath,
@@ -727,23 +821,49 @@ bool ensureRawMapCaches() {
     if (!convertPngToRaw(
           activeDayPngPath.c_str(),
           activeDayRawPath.c_str(),
-          "Converting day map"
+          "Converting day map",
+          displaySettings.dayMapGamma
         )) {
       return false;
     }
   }
 
-  if (!rawMapIsValid(NIGHT_RAW_FILE)) {
+  if (!rawMapIsValid(activeNightRawPath.c_str())) {
     if (!convertPngToRaw(
           NIGHT_PNG_FILE,
-          NIGHT_RAW_FILE,
-          "Converting night map"
+          activeNightRawPath.c_str(),
+          "Converting night map",
+          displaySettings.nightMapGamma
         )) {
       return false;
     }
   }
 
   return true;
+}
+
+
+bool applyMapDisplayTuning() {
+  closeMapFiles();
+
+  activeDayRawPath =
+    dayMapCachePath(selectedDayMapFilename);
+
+  activeNightRawPath =
+    nightMapCachePath();
+
+  const bool ok =
+    ensureRawMapCaches() &&
+    openMapFiles();
+
+  sdReady = ok;
+  refreshStorageStatus();
+
+  if (ok && timeValid) {
+    redrawWorldClock();
+  }
+
+  return ok;
 }
 
 
@@ -762,7 +882,7 @@ bool openMapFiles() {
   closeMapFiles();
 
   dayFile = SD.open(activeDayRawPath.c_str(), FILE_READ);
-  nightFile = SD.open(NIGHT_RAW_FILE, FILE_READ);
+  nightFile = SD.open(activeNightRawPath.c_str(), FILE_READ);
 
   if (!dayFile || !nightFile) {
     closeMapFiles();
@@ -810,6 +930,7 @@ bool initializeSD() {
   ensureDayMapDirectory();
   migrateLegacyDayMapIfNeeded();
   loadSelectedDayMapPreference();
+  activeNightRawPath = nightMapCachePath();
 
   if (!ensureSelectedDayMapAvailable(true)) {
     setSystemError(
@@ -939,7 +1060,7 @@ bool refreshStorageStatus() {
     rawMapIsValid(activeDayRawPath.c_str());
 
   systemStatus.nightCacheValid =
-    rawMapIsValid(NIGHT_RAW_FILE);
+    rawMapIsValid(activeNightRawPath.c_str());
 
   if (!systemStatus.dayPngFound) {
     setSystemError(
@@ -1018,7 +1139,8 @@ bool activateDayMap(
     !convertPngToRaw(
       pngPath.c_str(),
       rawPath.c_str(),
-      String("Caching ") + filename
+      String("Caching ") + filename,
+      displaySettings.dayMapGamma
     )
   ) {
     if (replacingActive) {
@@ -1090,7 +1212,8 @@ bool rebuildDayMapCache(
   bool ok = convertPngToRaw(
     pngPath.c_str(),
     rawPath.c_str(),
-    String("Rebuilding ") + filename
+    String("Rebuilding ") + filename,
+    displaySettings.dayMapGamma
   );
 
   if (active && ok) {
@@ -1101,7 +1224,7 @@ bool rebuildDayMapCache(
 
   sdReady =
     rawMapIsValid(activeDayRawPath.c_str()) &&
-    rawMapIsValid(NIGHT_RAW_FILE) &&
+    rawMapIsValid(activeNightRawPath.c_str()) &&
     dayFile &&
     nightFile;
 
@@ -1158,7 +1281,8 @@ bool rebuildAllDayMapCaches() {
         if (!convertPngToRaw(
               pngPath.c_str(),
               rawPath.c_str(),
-              String("Caching ") + filename
+              String("Caching ") + filename,
+              displaySettings.dayMapGamma
             )) {
           ok = false;
           break;
@@ -1212,19 +1336,21 @@ bool rebuildMapCache(
     ok = convertPngToRaw(
       activeDayPngPath.c_str(),
       activeDayRawPath.c_str(),
-      "Rebuilding selected map"
+      "Rebuilding selected map",
+      displaySettings.dayMapGamma
     );
   }
 
   if (ok && rebuildNight) {
-    if (SD.exists(NIGHT_RAW_FILE)) {
-      SD.remove(NIGHT_RAW_FILE);
+    if (SD.exists(activeNightRawPath.c_str())) {
+      SD.remove(activeNightRawPath.c_str());
     }
 
     ok = convertPngToRaw(
       NIGHT_PNG_FILE,
-      NIGHT_RAW_FILE,
-      "Rebuilding night map"
+      activeNightRawPath.c_str(),
+      "Rebuilding night map",
+      displaySettings.nightMapGamma
     );
   }
 

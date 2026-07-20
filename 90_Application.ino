@@ -98,6 +98,7 @@ void initializeWorldClock() {
   loadDisplaySettings();
 
   lcd.init();
+  applyBacklightBrightness();
   applyDisplayRotation();
   lcd.setColorDepth(16);
   lcd.setSwapBytes(true);

@@ -10,7 +10,7 @@
 // included. Display and SD values are inherited from the working WorldClock
 // 4.7.1 profiles. Touch wiring has been physically verified on the Heltec
 // WROOM and E32R28T boards. The AITRIP dual-USB CYD profile uses the same
-// verified XPT2046 wiring and is intended for physical validation here.
+// verified XPT2046 wiring and has been physically validated.
 
 struct BoardProfile {
   const char *name;
@@ -64,6 +64,13 @@ struct BoardProfile {
 
   // Informational only. Set the actual value in Arduino IDE.
   int nominalFlashMegabytes;
+
+  // Display tuning defaults. Brightness uses LovyanGFX's 0-255 scale.
+  // Gamma is stored in hundredths: 100 = unchanged, >100 darkens
+  // midtones, and <100 lifts shadow detail.
+  uint8_t defaultBacklightBrightness;
+  uint16_t defaultDayMapGamma;
+  uint16_t defaultNightMapGamma;
 };
 
 // Verified common XPT2046 wiring:
@@ -77,7 +84,8 @@ static constexpr BoardProfile PROFILE_HELTEC_WROOM_28 = {
   true, 25, 32, 39, 33, 36,
   80, 9, 2, 22, 100,
   0,
-  8
+  8,
+  245, 100, 100
 };
 
 static constexpr BoardProfile PROFILE_E32R28T = {
@@ -88,7 +96,8 @@ static constexpr BoardProfile PROFILE_E32R28T = {
   true, 25, 32, 39, 33, 36,
   60, 9, 2, 22, 120,
   0,
-  4
+  4,
+  230, 120, 100
 };
 
 // AITRIP ESP32-2432S028R dual-USB CYD. The USB-C + micro-USB revision
@@ -103,7 +112,8 @@ static constexpr BoardProfile PROFILE_AITRIP_ESP32_2432S028R = {
   true, 25, 32, 39, 33, 36,
   80, 9, 2, 22, 100,
   0,
-  4
+  4,
+  255, 100, 82
 };
 
 // ============================================================

@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.1.1";
+  "5.2-alpha1";
 
 // ============================================================
 // BOARD SELECTION
@@ -14,7 +14,7 @@ static constexpr const char *FIRMWARE_VERSION =
 #define BOARD_E32R28T           2
 #define BOARD_AITRIP_ESP32_2432S028R  3
 
-#define WORLDCLOCK_BOARD BOARD_AITRIP_ESP32_2432S028R
+#define WORLDCLOCK_BOARD BOARD_E32R28T
 
 #include "board_profiles.h"
 
@@ -51,6 +51,14 @@ static constexpr int MOON_DISC_RADIUS = 6;
 
 // ISS is deliberately smaller than the Moon: a crisp 5 x 5 cyan plus.
 static constexpr int ISS_PLUS_ARM = 2;
+
+// Display tuning limits. Gamma values are hundredths: 100 = unchanged.
+static constexpr uint8_t DISPLAY_BRIGHTNESS_MIN = 16;
+static constexpr uint8_t DISPLAY_BRIGHTNESS_MAX = 255;
+static constexpr uint8_t DISPLAY_BRIGHTNESS_STEP = 16;
+static constexpr uint16_t MAP_GAMMA_MIN = 50;
+static constexpr uint16_t MAP_GAMMA_MAX = 200;
+static constexpr uint16_t MAP_CACHE_FORMAT_VERSION = 2;
 
 // Optional location/grid overlay appearance.
 static constexpr int LOCATION_GRID_STEP_DEGREES = 30;
@@ -168,7 +176,8 @@ static constexpr const char *LEGACY_DAY_PNG_FILE =
 static constexpr const char *NIGHT_PNG_FILE =
   "/earth_night.png";
 
-static constexpr const char *NIGHT_RAW_FILE =
+// Retained only so diagnostics can identify obsolete pre-v5.2 caches.
+static constexpr const char *LEGACY_NIGHT_RAW_FILE =
   "/earth_night.rgb565";
 
 static constexpr size_t MAX_DAYLIGHT_MAPS = 20;
@@ -191,6 +200,10 @@ static constexpr const char *RUNTIME_CONFIG_PATH = "/";
 static constexpr const char *DIAGNOSTICS_PATH = "/diagnostics";
 static constexpr const char *TOUCH_RECALIBRATE_PATH =
   "/diagnostics/recalibrate-touch";
+static constexpr const char *DISPLAY_TEST_PATH =
+  "/diagnostics/display-test";
+static constexpr const char *DISPLAY_TEST_CLOCK_PATH =
+  "/diagnostics/display-test/clock";
 static constexpr const char *MAP_MAINTENANCE_PATH = "/maps";
 static constexpr const char *MAP_VALIDATE_PATH = "/maps/validate";
 static constexpr const char *MAP_REBUILD_DAY_PATH = "/maps/rebuild-day";
@@ -246,6 +259,15 @@ static constexpr const char *PREF_KEY_ISS_TRACK_DOTTED =
 
 static constexpr const char *PREF_KEY_DISPLAY_FLIP_180 =
   "flip180";
+
+static constexpr const char *PREF_KEY_DISPLAY_BRIGHTNESS =
+  "brightness";
+
+static constexpr const char *PREF_KEY_DAY_MAP_GAMMA =
+  "dayGamma";
+
+static constexpr const char *PREF_KEY_NIGHT_MAP_GAMMA =
+  "nightGamma";
 
 static constexpr const char *PREF_KEY_TIME_ZONE_PRESET =
   "tzPreset";
@@ -459,6 +481,7 @@ private:
   lgfx::Panel_ILI9341 panel;
 #endif
   lgfx::Bus_SPI bus;
+  lgfx::Light_PWM light;
 
 public:
   E32R28T_Display();
@@ -485,6 +508,9 @@ struct OverlaySettings {
 
 struct DisplaySettings {
   bool flip180 = false;
+  uint8_t brightness = ACTIVE_BOARD.defaultBacklightBrightness;
+  uint16_t dayMapGamma = ACTIVE_BOARD.defaultDayMapGamma;
+  uint16_t nightMapGamma = ACTIVE_BOARD.defaultNightMapGamma;
 };
 
 struct LocationGridSettings {
@@ -696,6 +722,7 @@ extern bool pngValidationOnly;
 extern String selectedDayMapFilename;
 extern String activeDayPngPath;
 extern String activeDayRawPath;
+extern String activeNightRawPath;
 
 extern unsigned long lastMapUpdate;
 extern unsigned long lastClockUpdate;
@@ -728,6 +755,10 @@ void serviceWorldClock();
 void updateAstronomy();
 void showSplashScreen();
 void drawIpAddress();
+void applyBacklightBrightness();
+void setDisplayBrightness(uint8_t brightness, bool persist = false);
+String displayBrightnessText();
+String mapGammaText(uint16_t gammaHundredths);
 
 // Rendering engine
 bool renderWorldDisplay();
@@ -820,6 +851,7 @@ bool renderPngPreview(const char *path, int topY, int height);
 bool isSafeDayMapFilename(const String &filename);
 String dayMapPngPath(const String &filename);
 String dayMapCachePath(const String &filename);
+String nightMapCachePath();
 size_t scanDaylightMaps(
   DaylightMapInfo *maps,
   size_t maximumCount,
@@ -837,10 +869,12 @@ bool rebuildAllDayMapCaches();
 bool convertPngToRaw(
   const char *pngPath,
   const char *rawPath,
-  const String &screenLabel
+  const String &screenLabel,
+  uint16_t gammaHundredths
 );
 
 bool ensureRawMapCaches();
+bool applyMapDisplayTuning();
 void closeMapFiles();
 bool openMapFiles();
 bool initializeSD();
@@ -1030,4 +1064,5 @@ void touchUiHandleDisplayRotationChanged();
 bool touchUiWeatherPageIsOpen();
 bool touchUiWeatherRadarIsOpen();
 void touchUiHandleWeatherUpdated();
+void showTouchUiDisplayTest();
 

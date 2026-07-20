@@ -79,6 +79,16 @@ bool applyTimeDisplaySettings(
     requestedDisplay.flip180 !=
       displaySettings.flip180;
 
+  const bool brightnessChanged =
+    requestedDisplay.brightness !=
+      displaySettings.brightness;
+
+  const bool mapTuningChanged =
+    requestedDisplay.dayMapGamma !=
+      displaySettings.dayMapGamma ||
+    requestedDisplay.nightMapGamma !=
+      displaySettings.nightMapGamma;
+
   networkSettings.utcOffsetMinutes =
     requestedUtcOffsetMinutes;
 
@@ -96,12 +106,26 @@ bool applyTimeDisplaySettings(
   const bool displaySaved =
     saveDisplaySettings();
 
+  if (brightnessChanged) {
+    applyBacklightBrightness();
+  }
+
+  bool mapTuningApplied = true;
+
+  if (mapTuningChanged && sdReady) {
+    mapTuningApplied =
+      applyMapDisplayTuning();
+  }
+
   Serial.printf(
     "Touch settings: time/display persistence "
-    "offset=%d time=%d display=%d\n",
+    "offset=%d time=%d display=%d brightness=%d gamma=%d cache=%d\n",
     offsetSaved,
     timeSaved,
-    displaySaved
+    displaySaved,
+    brightnessChanged,
+    mapTuningChanged,
+    mapTuningApplied
   );
 
   return

@@ -1253,8 +1253,15 @@ bool saveOverlaySettings() {
 bool loadDisplaySettings() {
   Preferences preferences;
 
+  displaySettings.flip180 = false;
+  displaySettings.brightness =
+    ACTIVE_BOARD.defaultBacklightBrightness;
+  displaySettings.dayMapGamma =
+    ACTIVE_BOARD.defaultDayMapGamma;
+  displaySettings.nightMapGamma =
+    ACTIVE_BOARD.defaultNightMapGamma;
+
   if (!preferences.begin(PREF_NAMESPACE, true)) {
-    displaySettings.flip180 = false;
     return false;
   }
 
@@ -1263,6 +1270,33 @@ bool loadDisplaySettings() {
       PREF_KEY_DISPLAY_FLIP_180,
       false
     );
+
+  displaySettings.brightness = constrain(
+    preferences.getUChar(
+      PREF_KEY_DISPLAY_BRIGHTNESS,
+      ACTIVE_BOARD.defaultBacklightBrightness
+    ),
+    DISPLAY_BRIGHTNESS_MIN,
+    DISPLAY_BRIGHTNESS_MAX
+  );
+
+  displaySettings.dayMapGamma = constrain(
+    preferences.getUShort(
+      PREF_KEY_DAY_MAP_GAMMA,
+      ACTIVE_BOARD.defaultDayMapGamma
+    ),
+    MAP_GAMMA_MIN,
+    MAP_GAMMA_MAX
+  );
+
+  displaySettings.nightMapGamma = constrain(
+    preferences.getUShort(
+      PREF_KEY_NIGHT_MAP_GAMMA,
+      ACTIVE_BOARD.defaultNightMapGamma
+    ),
+    MAP_GAMMA_MIN,
+    MAP_GAMMA_MAX
+  );
 
   preferences.end();
   return true;
@@ -1280,6 +1314,18 @@ bool saveDisplaySettings() {
     preferences.putBool(
       PREF_KEY_DISPLAY_FLIP_180,
       displaySettings.flip180
+    ) > 0 &&
+    preferences.putUChar(
+      PREF_KEY_DISPLAY_BRIGHTNESS,
+      displaySettings.brightness
+    ) > 0 &&
+    preferences.putUShort(
+      PREF_KEY_DAY_MAP_GAMMA,
+      displaySettings.dayMapGamma
+    ) > 0 &&
+    preferences.putUShort(
+      PREF_KEY_NIGHT_MAP_GAMMA,
+      displaySettings.nightMapGamma
     ) > 0;
 
   preferences.end();

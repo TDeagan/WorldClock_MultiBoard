@@ -1,9 +1,9 @@
 // ============================================================
-// WorldClock Version 5.1.1 touchscreen user interface
+// WorldClock Version 5.2-alpha1 touchscreen user interface
 // ============================================================
 //
-// Version 5.1.1 includes saved-location weather and regional radar pages while
-// retaining the Version 5 calibration, Wi-Fi, map, and keyboard controls.
+// Version 5.2 adds display brightness and map-gamma tuning while retaining
+// the Version 5 calibration, Wi-Fi, weather, radar, map, and keyboard controls.
 // ============================================================
 
 namespace {
@@ -21,7 +21,8 @@ enum class TouchUiPage : uint8_t {
   MapMaintenance,
   Network,
   Keyboard,
-  Diagnostics
+  Diagnostics,
+  DisplayTest
 };
 
 enum class TouchUiButtonId : uint8_t {
@@ -38,6 +39,9 @@ enum class TouchUiButtonId : uint8_t {
   Maps,
   Network,
   Diagnostics,
+  DisplayTest,
+  BrightnessDown,
+  BrightnessUp,
 
   MapRow0,
   MapRow1,
@@ -878,9 +882,16 @@ static constexpr TouchKeyboardCell KEYBOARD_SYMBOL2_CELLS[
 
 static constexpr TouchUiButton BUTTON_RECALIBRATE_TOUCH = {
   TouchUiButtonId::RecalibrateTouch,
-  8, 151, 304, 38,
-  "RECALIBRATE TOUCH",
+  8, 151, 148, 38,
+  "TOUCH CAL",
   TFT_MAROON
+};
+
+static constexpr TouchUiButton BUTTON_DISPLAY_TEST = {
+  TouchUiButtonId::DisplayTest,
+  164, 151, 148, 38,
+  "DISPLAY TEST",
+  TFT_PURPLE
 };
 
 static constexpr TouchUiButton BUTTON_PRESSURE_DOWN = {
@@ -907,6 +918,34 @@ static constexpr TouchUiButton BUTTON_BACK = {
 static constexpr TouchUiButton BUTTON_HOME = {
   TouchUiButtonId::Home,
   242, 195, 70, 32,
+  "CLOCK",
+  TFT_DARKGREEN
+};
+
+static constexpr TouchUiButton DISPLAY_TEST_BRIGHTNESS_DOWN = {
+  TouchUiButtonId::BrightnessDown,
+  8, 203, 70, 32,
+  "LIGHT -",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton DISPLAY_TEST_BRIGHTNESS_UP = {
+  TouchUiButtonId::BrightnessUp,
+  86, 203, 70, 32,
+  "LIGHT +",
+  TFT_DARKGREY
+};
+
+static constexpr TouchUiButton DISPLAY_TEST_BACK = {
+  TouchUiButtonId::Back,
+  164, 203, 70, 32,
+  "BACK",
+  TFT_NAVY
+};
+
+static constexpr TouchUiButton DISPLAY_TEST_HOME = {
+  TouchUiButtonId::Home,
+  242, 203, 70, 32,
   "CLOCK",
   TFT_DARKGREEN
 };
@@ -1025,10 +1064,18 @@ static constexpr const TouchUiButton *KEYBOARD_BUTTONS[] = {
 
 static constexpr const TouchUiButton *DIAGNOSTIC_BUTTONS[] = {
   &BUTTON_RECALIBRATE_TOUCH,
+  &BUTTON_DISPLAY_TEST,
   &BUTTON_PRESSURE_DOWN,
   &BUTTON_PRESSURE_UP,
   &BUTTON_BACK,
   &BUTTON_HOME
+};
+
+static constexpr const TouchUiButton *DISPLAY_TEST_BUTTONS[] = {
+  &DISPLAY_TEST_BRIGHTNESS_DOWN,
+  &DISPLAY_TEST_BRIGHTNESS_UP,
+  &DISPLAY_TEST_BACK,
+  &DISPLAY_TEST_HOME
 };
 
 // ------------------------------------------------------------
@@ -1174,6 +1221,7 @@ void forgetTouchNetwork();
 
 void drawTouchUiDiagnosticsData();
 void drawTouchUiDiagnostics();
+void drawTouchUiDisplayTest();
 void drawActiveTouchUiPage();
 void prepareTouchUiDraft(TouchUiPage page);
 void openTouchUiMainMenu();
@@ -1266,6 +1314,13 @@ void touchUiButtonsForPage(
       buttonCountOut =
         sizeof(DIAGNOSTIC_BUTTONS) /
         sizeof(DIAGNOSTIC_BUTTONS[0]);
+      break;
+
+    case TouchUiPage::DisplayTest:
+      buttonsOut = DISPLAY_TEST_BUTTONS;
+      buttonCountOut =
+        sizeof(DISPLAY_TEST_BUTTONS) /
+        sizeof(DISPLAY_TEST_BUTTONS[0]);
       break;
 
     case TouchUiPage::Maps:
@@ -2276,6 +2331,9 @@ const char *touchUiPageTitle(
     case TouchUiPage::Diagnostics:
       return "DIAGNOSTICS";
 
+    case TouchUiPage::DisplayTest:
+      return "DISPLAY TEST";
+
     case TouchUiPage::MainMenu:
       return "TOUCH MENU";
 
@@ -3147,7 +3205,7 @@ void drawTouchUiMapMaintenance() {
   }
 
   status +=
-    rawMapIsValid(NIGHT_RAW_FILE)
+    rawMapIsValid(activeNightRawPath.c_str())
       ? "   Night cache OK"
       : "   Night cache missing";
 
@@ -4413,8 +4471,10 @@ void drawTouchUiDiagnosticsData() {
   snprintf(
     line,
     sizeof(line),
-    "Selected map: %s",
-    selectedDayMapFilename.c_str()
+    "Light:%u  Day gamma:%s  Night gamma:%s",
+    displaySettings.brightness,
+    mapGammaText(displaySettings.dayMapGamma).c_str(),
+    mapGammaText(displaySettings.nightMapGamma).c_str()
   );
 
   lcd.drawString(
@@ -4444,6 +4504,111 @@ void drawTouchUiDiagnostics() {
   }
 
   drawTouchUiFooter();
+}
+
+
+uint16_t displayTestGray565(uint8_t value) {
+  return static_cast<uint16_t>(
+    ((value >> 3) << 11) |
+    ((value >> 2) << 5) |
+    (value >> 3)
+  );
+}
+
+
+void drawTouchUiDisplayTest() {
+  lcd.fillScreen(TFT_BLACK);
+  lcd.setFont(&fonts::Font0);
+  lcd.setTextDatum(textdatum_t::top_left);
+  lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+  lcd.drawString("GRAYSCALE", 2, 2);
+
+  for (int step = 0; step < 16; ++step) {
+    const uint8_t value = static_cast<uint8_t>(step * 17);
+    lcd.fillRect(
+      step * 20,
+      15,
+      20,
+      34,
+      displayTestGray565(value)
+    );
+  }
+
+  lcd.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+  lcd.drawString("NEAR BLACK", 2, 51);
+
+  for (int step = 0; step < 16; ++step) {
+    const uint8_t value = static_cast<uint8_t>(step * 2);
+    lcd.fillRect(
+      step * 20,
+      63,
+      20,
+      20,
+      displayTestGray565(value)
+    );
+  }
+
+  lcd.drawString("NEAR WHITE", 2, 85);
+
+  for (int step = 0; step < 16; ++step) {
+    const uint8_t value = static_cast<uint8_t>(225 + step * 2);
+    lcd.fillRect(
+      step * 20,
+      97,
+      20,
+      20,
+      displayTestGray565(value)
+    );
+  }
+
+  for (int x = 0; x < SCREEN_W; ++x) {
+    const uint8_t value = static_cast<uint8_t>(
+      (static_cast<uint32_t>(x) * 255U) / (SCREEN_W - 1)
+    );
+
+    lcd.drawFastVLine(
+      x,
+      121,
+      20,
+      static_cast<uint16_t>((value >> 3) << 11)
+    );
+
+    lcd.drawFastVLine(
+      x,
+      143,
+      20,
+      static_cast<uint16_t>((value >> 2) << 5)
+    );
+
+    lcd.drawFastVLine(
+      x,
+      165,
+      20,
+      static_cast<uint16_t>(value >> 3)
+    );
+  }
+
+  lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+  lcd.drawString("R", 2, 126);
+  lcd.drawString("G", 2, 148);
+  lcd.drawString("B", 2, 170);
+
+  lcd.setTextDatum(textdatum_t::middle_center);
+  lcd.setTextColor(TFT_CYAN, TFT_BLACK);
+  lcd.drawString(
+    String("LIGHT ") + displayBrightnessText() +
+      "  D " + mapGammaText(displaySettings.dayMapGamma) +
+      "  N " + mapGammaText(displaySettings.nightMapGamma),
+    SCREEN_W / 2,
+    194
+  );
+
+  for (
+    const TouchUiButton *button :
+      DISPLAY_TEST_BUTTONS
+  ) {
+    drawTouchUiButton(*button);
+  }
 }
 
 // ------------------------------------------------------------
@@ -4566,6 +4731,10 @@ void drawActiveTouchUiPage() {
 
     case TouchUiPage::Diagnostics:
       drawTouchUiDiagnostics();
+      break;
+
+    case TouchUiPage::DisplayTest:
+      drawTouchUiDisplayTest();
       break;
 
     case TouchUiPage::Maps:
@@ -4798,6 +4967,36 @@ void handleTouchUiButton(
       showTouchUiPage(
         TouchUiPage::Diagnostics
       );
+      break;
+
+    case TouchUiButtonId::DisplayTest:
+      showTouchUiPage(
+        TouchUiPage::DisplayTest
+      );
+      break;
+
+    case TouchUiButtonId::BrightnessDown:
+      setDisplayBrightness(
+        static_cast<uint8_t>(max(
+          static_cast<int>(DISPLAY_BRIGHTNESS_MIN),
+          static_cast<int>(displaySettings.brightness) -
+            static_cast<int>(DISPLAY_BRIGHTNESS_STEP)
+        )),
+        true
+      );
+      drawTouchUiDisplayTest();
+      break;
+
+    case TouchUiButtonId::BrightnessUp:
+      setDisplayBrightness(
+        static_cast<uint8_t>(min(
+          static_cast<int>(DISPLAY_BRIGHTNESS_MAX),
+          static_cast<int>(displaySettings.brightness) +
+            static_cast<int>(DISPLAY_BRIGHTNESS_STEP)
+        )),
+        true
+      );
+      drawTouchUiDisplayTest();
       break;
 
     case TouchUiButtonId::MapRow0:
@@ -5275,6 +5474,8 @@ void handleTouchUiButton(
     case TouchUiButtonId::Back:
       if (activeTouchUiPage == TouchUiPage::WeatherRadar) {
         showTouchUiPage(TouchUiPage::Weather);
+      } else if (activeTouchUiPage == TouchUiPage::DisplayTest) {
+        showTouchUiPage(TouchUiPage::Diagnostics);
       } else if (
         activeTouchUiPage == TouchUiPage::MapPreview ||
         activeTouchUiPage == TouchUiPage::MapMaintenance
@@ -5500,6 +5701,11 @@ void finishTouchUiPress() {
 } // namespace
 
 
+void showTouchUiDisplayTest() {
+  showTouchUiPage(TouchUiPage::DisplayTest);
+}
+
+
 void initializeTouchUi() {
 
   if (touchUiInitialized) {
@@ -5580,6 +5786,8 @@ void serviceTouchUi() {
       TouchUiPage::Clock &&
     activeTouchUiPage !=
       TouchUiPage::WeatherRadar &&
+    activeTouchUiPage !=
+      TouchUiPage::DisplayTest &&
     millis() -
       touchUiLastActivityAt >=
       TOUCH_UI_INACTIVITY_MS

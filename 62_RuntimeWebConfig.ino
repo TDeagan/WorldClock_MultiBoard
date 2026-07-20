@@ -13,6 +13,8 @@ bool runtimeForgetPending = false;
 bool runtimePendingTimeZoneChanged = false;
 bool runtimePendingClockDisplayChanged = false;
 bool runtimePendingOrientationChanged = false;
+bool runtimePendingBrightnessChanged = false;
+bool runtimePendingMapTuningChanged = false;
 bool runtimePendingLocationGridChanged = false;
 bool runtimePendingHomeCoordinatesChanged = false;
 bool runtimePendingWeatherChanged = false;
@@ -261,6 +263,17 @@ String runtimeConfigurationPage(
   );
 
   summaryRow(
+    "Backlight brightness",
+    displayBrightnessText()
+  );
+
+  summaryRow(
+    "Map gamma",
+    String("day ") + mapGammaText(displaySettings.dayMapGamma) +
+      ", night " + mapGammaText(displaySettings.nightMapGamma)
+  );
+
+  summaryRow(
     "Home marker",
     locationGridSettings.showHomeMarker
       ? formatHomeLocation()
@@ -438,6 +451,35 @@ String runtimeConfigurationPage(
   page += F(
     ">Flipped 180 degrees</option>"
     "</select>"
+    "<label>Backlight brightness (16-255)</label>"
+    "<input id=\"brightness\" type=\"number\" min=\"16\" max=\"255\" "
+    "step=\"1\" inputmode=\"numeric\" value=\""
+  );
+
+  page += String(displaySettings.brightness);
+
+  page += F(
+    "\">"
+    "<label>Day map gamma (0.50-2.00)</label>"
+    "<input id=\"dayMapGamma\" type=\"number\" min=\"0.50\" max=\"2.00\" "
+    "step=\"0.01\" inputmode=\"decimal\" value=\""
+  );
+
+  page += mapGammaText(displaySettings.dayMapGamma);
+
+  page += F(
+    "\">"
+    "<label>Night map gamma (0.50-2.00)</label>"
+    "<input id=\"nightMapGamma\" type=\"number\" min=\"0.50\" max=\"2.00\" "
+    "step=\"0.01\" inputmode=\"decimal\" value=\""
+  );
+
+  page += mapGammaText(displaySettings.nightMapGamma);
+
+  page += F(
+    "\">"
+    "<p class=\"note\">Gamma above 1.00 darkens map midtones; below 1.00 "
+    "lifts shadow detail. Changing gamma creates new board-specific RGB565 caches.</p>"
     "<label>Home location and grid</label>"
     "<label>Latitude</label>"
     "<div class=\"row\">"
@@ -634,6 +676,9 @@ String runtimeConfigurationPage(
         "add('offsetMagnitude',document.getElementById('offsetMagnitude').value);"
         "add('use24Hour',document.getElementById('use24Hour').value);"
         "add('flip180',document.getElementById('flip180').value);"
+        "add('brightness',document.getElementById('brightness').value);"
+        "add('dayMapGamma',document.getElementById('dayMapGamma').value);"
+        "add('nightMapGamma',document.getElementById('nightMapGamma').value);"
         "add('homeLatitudeSign',document.getElementById('homeLatitudeSign').value);"
         "add('homeLatitudeMagnitude',document.getElementById('homeLatitudeMagnitude').value);"
         "add('homeLongitudeSign',document.getElementById('homeLongitudeSign').value);"
@@ -691,6 +736,9 @@ void handleRuntimeSave() {
     !runtimeServer.hasArg("offsetSign") ||
     !runtimeServer.hasArg("use24Hour") ||
     !runtimeServer.hasArg("flip180") ||
+    !runtimeServer.hasArg("brightness") ||
+    !runtimeServer.hasArg("dayMapGamma") ||
+    !runtimeServer.hasArg("nightMapGamma") ||
     !runtimeServer.hasArg("homeLatitudeSign") ||
     !runtimeServer.hasArg("homeLatitudeMagnitude") ||
     !runtimeServer.hasArg("homeLongitudeSign") ||
@@ -804,6 +852,44 @@ void handleRuntimeSave() {
   const bool requestedFlip180 =
     runtimeServer.arg("flip180") == "1";
 
+  const int requestedBrightness =
+    runtimeServer.arg("brightness").toInt();
+
+  double requestedDayGammaValue = 0.0;
+  double requestedNightGammaValue = 0.0;
+
+  if (
+    requestedBrightness < DISPLAY_BRIGHTNESS_MIN ||
+    requestedBrightness > DISPLAY_BRIGHTNESS_MAX ||
+    !parseCoordinateValue(
+      runtimeServer.arg("dayMapGamma"),
+      static_cast<double>(MAP_GAMMA_MIN) / 100.0,
+      static_cast<double>(MAP_GAMMA_MAX) / 100.0,
+      requestedDayGammaValue
+    ) ||
+    !parseCoordinateValue(
+      runtimeServer.arg("nightMapGamma"),
+      static_cast<double>(MAP_GAMMA_MIN) / 100.0,
+      static_cast<double>(MAP_GAMMA_MAX) / 100.0,
+      requestedNightGammaValue
+    )
+  ) {
+    sendRuntimeHtml(
+      400,
+      runtimeConfigurationPage(
+        "Brightness must be 16-255 and map gamma must be 0.50-2.00.",
+        true
+      )
+    );
+    return;
+  }
+
+  const uint16_t requestedDayMapGamma =
+    static_cast<uint16_t>(lround(requestedDayGammaValue * 100.0));
+
+  const uint16_t requestedNightMapGamma =
+    static_cast<uint16_t>(lround(requestedNightGammaValue * 100.0));
+
   const bool requestedShowHomeMarker =
     runtimeServer.hasArg("showHomeMarker");
 
@@ -852,6 +938,16 @@ void handleRuntimeSave() {
     requestedFlip180 !=
       displaySettings.flip180;
 
+  runtimePendingBrightnessChanged =
+    requestedBrightness !=
+      displaySettings.brightness;
+
+  runtimePendingMapTuningChanged =
+    requestedDayMapGamma !=
+      displaySettings.dayMapGamma ||
+    requestedNightMapGamma !=
+      displaySettings.nightMapGamma;
+
   runtimePendingHomeCoordinatesChanged =
     fabs(
       requestedHomeLatitude -
@@ -890,6 +986,15 @@ void handleRuntimeSave() {
 
   displaySettings.flip180 =
     requestedFlip180;
+
+  displaySettings.brightness =
+    static_cast<uint8_t>(requestedBrightness);
+
+  displaySettings.dayMapGamma =
+    requestedDayMapGamma;
+
+  displaySettings.nightMapGamma =
+    requestedNightMapGamma;
 
   locationGridSettings.homeLatitude =
     requestedHomeLatitude;
@@ -1083,6 +1188,43 @@ void handleTouchRecalibrate() {
         "settings are erased by this operation.</p>"
         "<p>After completing or cancelling calibration, return to "
         "<a href=\"/diagnostics\">Diagnostics</a>.</p>") +
+      pageFooter()
+  );
+}
+
+
+void handleDisplayTest() {
+  Serial.printf(
+    "Runtime web: %s %s\n",
+    runtimeMethodName(),
+    runtimeServer.uri().c_str()
+  );
+
+  showTouchUiDisplayTest();
+
+  sendRuntimeHtml(
+    200,
+    pageHeader("Display Test") +
+      F("<div class=\"msg\">The grayscale, near-black, near-white, and "
+        "RGB test pattern is now shown on the World Clock display.</div>"
+        "<p>Use the touchscreen LIGHT controls or the Settings page to adjust "
+        "brightness. Day and night gamma are applied when map caches are built.</p>"
+        "<a class=\"button\" href=\"/diagnostics/display-test/clock\">"
+        "Return display to clock</a>"
+        "<a class=\"button\" href=\"/diagnostics\">Return to Diagnostics</a>") +
+      pageFooter()
+  );
+}
+
+
+void handleDisplayTestClock() {
+  closeTouchUi(true);
+
+  sendRuntimeHtml(
+    200,
+    pageHeader("Display Test") +
+      F("<div class=\"msg\">The World Clock display has returned to the clock.</div>"
+        "<p><a href=\"/diagnostics\">Return to Diagnostics</a></p>") +
       pageFooter()
   );
 }
@@ -1624,6 +1766,16 @@ String buildDiagnosticsPage() {
   row("Native LCD rotation", String(DISPLAY_ROTATION));
   row("Configured orientation", displayOrientationName());
   row("Effective LCD rotation", String(effectiveDisplayRotation()));
+  row("Backlight brightness", displayBrightnessText());
+  row("Day map gamma", mapGammaText(displaySettings.dayMapGamma));
+  row("Night map gamma", mapGammaText(displaySettings.nightMapGamma));
+  row("Map cache format", String(MAP_CACHE_FORMAT_VERSION));
+  row(
+    "Legacy night cache",
+    SD.exists(LEGACY_NIGHT_RAW_FILE)
+      ? "Present but unused"
+      : "Absent"
+  );
 
   const TouchDiagnostics &touch =
     getTouchDiagnostics();
@@ -1726,6 +1878,7 @@ String buildDiagnosticsPage() {
   row("Selected daylight map", selectedDayMapFilename);
   row("Day PNG path", activeDayPngPath);
   row("Day cache path", activeDayRawPath);
+  row("Night cache path", activeNightRawPath);
   row("Day PNG", systemStatus.dayPngFound ? "Found" : "Missing");
   row("Night PNG", systemStatus.nightPngFound ? "Found" : "Missing");
   row("Day cache", systemStatus.dayCacheValid ? "Valid" : "Invalid");
@@ -1759,6 +1912,16 @@ String buildDiagnosticsPage() {
     page += F("</a>");
   }
 
+  page += F(
+    "<h2>Display calibration</h2>"
+    "<p class=\"note\">Show grayscale, near-black, near-white, and RGB "
+    "gradients on the physical display. The pattern remains until CLOCK is "
+    "selected on the touchscreen or the browser return control is used.</p>"
+    "<a class=\"button\" href=\""
+  );
+  page += DISPLAY_TEST_PATH;
+  page += F("\">Show Display Test Pattern</a>");
+
   page += pageFooter();
   return page;
 }
@@ -1789,7 +1952,7 @@ String buildMapMaintenancePage(
     );
 
   const bool nightCacheValid =
-    rawMapIsValid(NIGHT_RAW_FILE);
+    rawMapIsValid(activeNightRawPath.c_str());
 
   String page = pageHeader("Maps");
 
@@ -1807,8 +1970,8 @@ String buildMapMaintenancePage(
 
   page += F(
     "<p class=\"note\">Daylight maps are discovered from <strong>/maps/</strong>. "
-    "Each PNG uses a same-name RGB565 cache. The night image and cache are shared "
-    "by every daylight map.</p>"
+    "Each PNG uses a board- and gamma-specific RGB565 cache. The night image "
+    "source is shared, while each board/tuning combination gets its own cache.</p>"
     "<table>"
   );
 
@@ -1822,6 +1985,15 @@ String buildMapMaintenancePage(
 
   row("Selected daylight map", selectedDayMapFilename);
   row("Expected cache size", String(RAW_MAP_BYTES) + " bytes");
+  row("Cache format", String(MAP_CACHE_FORMAT_VERSION));
+  row("Day gamma", mapGammaText(displaySettings.dayMapGamma));
+  row("Night gamma", mapGammaText(displaySettings.nightMapGamma));
+  row(
+    "Legacy /earth_night.rgb565",
+    SD.exists(LEGACY_NIGHT_RAW_FILE)
+      ? "Present but unused"
+      : "Absent"
+  );
   row("Maps discovered", String(totalMapCount));
   row(
     "Shared night source",
@@ -1832,7 +2004,7 @@ String buildMapMaintenancePage(
   row(
     "Shared night cache",
     nightCacheValid
-      ? String(fileSizeOrZero(NIGHT_RAW_FILE)) + " bytes; valid"
+      ? String(fileSizeOrZero(activeNightRawPath.c_str())) + " bytes; valid"
       : "Invalid or missing"
   );
 
@@ -2019,6 +2191,16 @@ void startRuntimeConfigServer() {
     HTTP_GET,
     handleTouchRecalibrate
   );
+  runtimeServer.on(
+    DISPLAY_TEST_PATH,
+    HTTP_GET,
+    handleDisplayTest
+  );
+  runtimeServer.on(
+    DISPLAY_TEST_CLOCK_PATH,
+    HTTP_GET,
+    handleDisplayTestClock
+  );
   runtimeServer.on(MAP_MAINTENANCE_PATH, HTTP_GET, handleMaps);
   runtimeServer.on(
     MAP_VALIDATE_PATH,
@@ -2123,6 +2305,12 @@ void serviceRuntimeConfigServer() {
     const bool orientationChanged =
       runtimePendingOrientationChanged;
 
+    const bool brightnessChanged =
+      runtimePendingBrightnessChanged;
+
+    const bool mapTuningChanged =
+      runtimePendingMapTuningChanged;
+
     const bool locationGridChanged =
       runtimePendingLocationGridChanged;
 
@@ -2135,6 +2323,8 @@ void serviceRuntimeConfigServer() {
     runtimePendingTimeZoneChanged = false;
     runtimePendingClockDisplayChanged = false;
     runtimePendingOrientationChanged = false;
+    runtimePendingBrightnessChanged = false;
+    runtimePendingMapTuningChanged = false;
     runtimePendingLocationGridChanged = false;
     runtimePendingHomeCoordinatesChanged = false;
     runtimePendingWeatherChanged = false;
@@ -2142,11 +2332,13 @@ void serviceRuntimeConfigServer() {
     Serial.printf(
       "Runtime web: applying settings; "
       "timeZoneChanged=%d clockDisplayChanged=%d "
-      "orientationChanged=%d locationGridChanged=%d "
-      "homeCoordinatesChanged=%d weatherChanged=%d\n",
+      "orientationChanged=%d brightnessChanged=%d mapTuningChanged=%d "
+      "locationGridChanged=%d homeCoordinatesChanged=%d weatherChanged=%d\n",
       timeZoneChanged,
       clockDisplayChanged,
       orientationChanged,
+      brightnessChanged,
+      mapTuningChanged,
       locationGridChanged,
       homeCoordinatesChanged,
       weatherChanged
@@ -2159,6 +2351,14 @@ void serviceRuntimeConfigServer() {
     if (orientationChanged) {
       applyDisplayRotation();
       lcd.fillScreen(TFT_BLACK);
+    }
+
+    if (brightnessChanged) {
+      applyBacklightBrightness();
+    }
+
+    if (mapTuningChanged) {
+      applyMapDisplayTuning();
     }
 
     if (weatherChanged) {

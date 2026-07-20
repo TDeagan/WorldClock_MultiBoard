@@ -1,6 +1,4 @@
-ESP32 World Clock v5.1.1
+ESP32 World Clock v5.2-alpha1
 
-The complete end-user and installation documentation is in README.md.
-README.md includes supported-board profiles, first-boot setup, touch calibration,
-Wi-Fi configuration, weather and radar operation, microSD preparation, and
-Arduino installation instructions.
+See README.md for complete end-user instructions, installation steps,
+supported board profiles, display tuning, weather/radar operation, and troubleshooting.
