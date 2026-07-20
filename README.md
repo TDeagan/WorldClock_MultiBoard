@@ -1,10 +1,10 @@
-# ESP32 World Clock v5.1-rc2
+# ESP32 World Clock v5.1.1
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 TFT screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, and saved-location weather.
 
 The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts and a fixed-scale regional precipitation-radar image are cached on the card for immediate and offline display.
 
-Version 5.1-rc2 adds saved-location forecasts, regional precipitation radar, cached OpenStreetMap basemap tiles, and a location-name heading. The release candidate also treats coordinates `0,0` as “no saved location,” disabling every weather control and network request until a real location is entered. On a virgin installation, required touch calibration times out after 60 seconds, disables touch, and continues to captive-portal Wi-Fi setup; touch can later be enabled from browser **Diagnostics**. The WROOM and E32R28T board profiles have been tested on physical hardware. Version 5.1-rc2 replaces the unused Elegoo profile with a dedicated AITRIP ESP32-2432S028R dual-USB CYD profile using an ST7789 display and enabled XPT2046 calibration.
+Version 5.1.1 adds saved-location forecasts, regional precipitation radar, cached OpenStreetMap basemap tiles, and a location-name heading. Coordinates `0,0` are treated as “no saved location,” disabling every weather control and network request until a real location is entered. On a virgin installation, required touch calibration times out after 60 seconds, disables touch, and continues to captive-portal Wi-Fi setup; touch can later be enabled from browser **Diagnostics**. The WROOM, E32R28T, and AITRIP ESP32-2432S028R dual-USB CYD profiles have all been tested on physical hardware. Version 5.1.1 replaces the unused Elegoo profile with the dedicated AITRIP profile using an ST7789 display and enabled XPT2046 calibration.
 
 ## Section 1: Using an Installed World Clock
 
@@ -136,7 +136,7 @@ The touchscreen Weather page names the saved location in its header when a rever
 - The age of the cached report
 - Three daily cards with condition, high, low, and maximum precipitation probability
 
-Use **REFRESH** to request a new forecast. Use **RADAR** to open the regional precipitation-radar page. The radar page shows a fixed-scale regional map centered on the saved latitude and longitude, places a crosshair at the saved point, and overlays the latest available RainViewer precipitation frame. The background is assembled from native 256 × 256 OpenStreetMap raster tiles at the same Web-Mercator zoom, so roads, boundaries, coastlines, and labels remain sharp instead of enlarging the 320 × 240 world map. It is not an interactive map and does not pan, zoom, or animate in this alpha release. The radar page stays open until **CLOCK** is pressed; the normal one-minute touchscreen inactivity timeout does not close it.
+Use **REFRESH** to request a new forecast. Use **RADAR** to open the regional precipitation-radar page. The radar page shows a fixed-scale regional map centered on the saved latitude and longitude, places a crosshair at the saved point, and overlays the latest available RainViewer precipitation frame. The background is assembled from native 256 × 256 OpenStreetMap raster tiles at the same Web-Mercator zoom, so roads, boundaries, coastlines, and labels remain sharp instead of enlarging the 320 × 240 world map. It is not an interactive map and does not pan, zoom, or animate in this release. The radar page stays open until **CLOCK** is pressed; the normal one-minute touchscreen inactivity timeout does not close it.
 
 The browser **Weather** page shows the resolved location name, saved coordinates, the same current conditions, and the three-day summary. It can schedule forecast and radar refreshes and can display the cached radar overlay. The browser image remains the transparent radar layer; the clock display combines it with cached OpenStreetMap raster tiles. Areas without precipitation remain transparent so the basemap remains visible.
 
@@ -306,11 +306,11 @@ Use the browser's **Refresh** link to update the values.
 
 The included board profiles support:
 
-| `WORLDCLOCK_BOARD` value | Target hardware | Nominal flash |
-|---|---|---:|
-| `BOARD_HELTEC_WROOM_28` | Heltec-labeled ESP32-WROOM-32 2.8-inch display board | 8 MB |
-| `BOARD_E32R28T` | E32R28T ESP32-32E 2.8-inch display board | 4 MB |
-| `BOARD_AITRIP_ESP32_2432S028R` | AITRIP ESP32-2432S028R dual-USB CYD | 4 MB |
+| `WORLDCLOCK_BOARD` value | Target hardware | Nominal flash | Validation |
+|---|---|---:|---|
+| `BOARD_HELTEC_WROOM_28` | Heltec-labeled ESP32-WROOM-32 2.8-inch display board | 8 MB | Hardware tested |
+| `BOARD_E32R28T` | E32R28T ESP32-32E 2.8-inch display board | 4 MB | Hardware tested |
+| `BOARD_AITRIP_ESP32_2432S028R` | AITRIP ESP32-2432S028R dual-USB CYD | 4 MB | Hardware tested |
 
 The profiles define the TFT pins, microSD pins, panel geometry, rotation, RGB/BGR order, display inversion, backlight polarity, BOOT/configuration-button pin, and nominal flash size.
 
@@ -335,7 +335,7 @@ Install:
 3. **LovyanGFX** through Arduino Library Manager
 4. **PNGdec** by Larry Bank/BitBank through Arduino Library Manager
 
-The v5.1-rc2 development baseline supplied for this release uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
+The v5.1.1 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
 
 The following headers are supplied by the ESP32 Arduino core and should not normally be installed separately:
 
@@ -410,7 +410,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.1-rc2";
+  "5.1.1";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -549,7 +549,7 @@ This profile is intended for the AITRIP board with both USB-C and micro-USB conn
 - XPT2046 touch pins `CLK 25`, `MOSI 32`, `MISO 39`, `CS 33`, `IRQ 36`
 - microSD pins `CLK 18`, `MISO 19`, `MOSI 23`, `CS 5`
 - Nominal 4 MB flash
-- Integrated first-boot touch calibration enabled
+- Integrated first-boot touch calibration enabled and verified on physical hardware
 
 The ESP32-2432S028 name is used for several production revisions. This profile specifically targets the dual-USB ST7789 revision; the single-micro-USB ILI9341 version should use a different panel profile. If the image is landscape but upside down during validation, change the AITRIP profile rotation from `1` to `3`.
 
@@ -606,7 +606,7 @@ The ESP32-2432S028 name is used for several production revisions. This profile s
 
 **Weather compilation or runtime problems**
 
-- No ArduinoJson installation is required; v5.1-rc2 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
+- No ArduinoJson installation is required; v5.1.1 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
 - Confirm that `HTTPClient.h` and `WiFiClientSecure.h` are available from the selected ESP32 board package.
 - Confirm that the partition scheme still provides enough application space after adding `67_Weather.ino`.
 - Persistent weather, radar, and basemap caching requires a writable microSD card; the firmware creates `/weather` automatically.

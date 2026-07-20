@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.1-rc2";
+  "5.1.1";
 
 // ============================================================
 // BOARD SELECTION

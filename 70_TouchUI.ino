@@ -1,8 +1,8 @@
 // ============================================================
-// WorldClock Version 5.1 alpha touchscreen user interface
+// WorldClock Version 5.1.1 touchscreen user interface
 // ============================================================
 //
-// Version 5.1 adds saved-location weather and regional radar pages while
+// Version 5.1.1 includes saved-location weather and regional radar pages while
 // retaining the Version 5 calibration, Wi-Fi, map, and keyboard controls.
 // ============================================================
 
