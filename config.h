@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.1-rc1";
+  "5.1-rc2";
 
 // ============================================================
 // BOARD SELECTION
@@ -12,9 +12,9 @@ static constexpr const char *FIRMWARE_VERSION =
 
 #define BOARD_HELTEC_WROOM_28   1
 #define BOARD_E32R28T           2
-#define BOARD_ELEGOO_EL_EB_009  3
+#define BOARD_AITRIP_ESP32_2432S028R  3
 
-#define WORLDCLOCK_BOARD BOARD_E32R28T
+#define WORLDCLOCK_BOARD BOARD_AITRIP_ESP32_2432S028R
 
 #include "board_profiles.h"
 
@@ -452,7 +452,12 @@ static constexpr const char *ISS_API_URL =
 
 class E32R28T_Display : public lgfx::LGFX_Device {
 private:
+#if WORLDCLOCK_BOARD == BOARD_AITRIP_ESP32_2432S028R
+  // The dual-USB ESP32-2432S028R revision uses an ST7789 panel.
+  lgfx::Panel_ST7789 panel;
+#else
   lgfx::Panel_ILI9341 panel;
+#endif
   lgfx::Bus_SPI bus;
 
 public:

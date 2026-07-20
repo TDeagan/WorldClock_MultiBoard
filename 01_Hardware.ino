@@ -40,6 +40,9 @@ E32R28T_Display::E32R28T_Display() {
 
   p.offset_x = 0;
   p.offset_y = 0;
+  p.offset_rotation = ACTIVE_BOARD.panelOffsetRotation;
+  p.dummy_read_pixel = ACTIVE_BOARD.dummyReadPixelBits;
+  p.dummy_read_bits = ACTIVE_BOARD.dummyReadCommandBits;
 
   p.readable = true;
   p.invert = ACTIVE_BOARD.invertDisplay;

@@ -1,10 +1,10 @@
-# ESP32 World Clock v5.1-rc1
+# ESP32 World Clock v5.1-rc2
 
-ESP32 World Clock displays a live day/night world map on a 320 × 240 ILI9341 screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, and saved-location weather.
+ESP32 World Clock displays a live day/night world map on a 320 × 240 TFT screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, and saved-location weather.
 
 The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts and a fixed-scale regional precipitation-radar image are cached on the card for immediate and offline display.
 
-Version 5.1-rc1 adds saved-location forecasts, regional precipitation radar, cached OpenStreetMap basemap tiles, and a location-name heading. The release candidate also treats coordinates `0,0` as “no saved location,” disabling every weather control and network request until a real location is entered. On a virgin installation, required touch calibration times out after 60 seconds, disables touch, and continues to captive-portal Wi-Fi setup; touch can later be enabled from browser **Diagnostics**. The WROOM and E32R28T board profiles have been tested on physical hardware. The Elegoo/CYD profile is included, but its touchscreen remains intentionally disabled until verified on that hardware.
+Version 5.1-rc2 adds saved-location forecasts, regional precipitation radar, cached OpenStreetMap basemap tiles, and a location-name heading. The release candidate also treats coordinates `0,0` as “no saved location,” disabling every weather control and network request until a real location is entered. On a virgin installation, required touch calibration times out after 60 seconds, disables touch, and continues to captive-portal Wi-Fi setup; touch can later be enabled from browser **Diagnostics**. The WROOM and E32R28T board profiles have been tested on physical hardware. Version 5.1-rc2 replaces the unused Elegoo profile with a dedicated AITRIP ESP32-2432S028R dual-USB CYD profile using an ST7789 display and enabled XPT2046 calibration.
 
 ## Section 1: Using an Installed World Clock
 
@@ -310,7 +310,7 @@ The included board profiles support:
 |---|---|---:|
 | `BOARD_HELTEC_WROOM_28` | Heltec-labeled ESP32-WROOM-32 2.8-inch display board | 8 MB |
 | `BOARD_E32R28T` | E32R28T ESP32-32E 2.8-inch display board | 4 MB |
-| `BOARD_ELEGOO_EL_EB_009` | Elegoo EL-EB-009 / ESP32-2432S028R CYD | 4 MB |
+| `BOARD_AITRIP_ESP32_2432S028R` | AITRIP ESP32-2432S028R dual-USB CYD | 4 MB |
 
 The profiles define the TFT pins, microSD pins, panel geometry, rotation, RGB/BGR order, display inversion, backlight polarity, BOOT/configuration-button pin, and nominal flash size.
 
@@ -335,7 +335,7 @@ Install:
 3. **LovyanGFX** through Arduino Library Manager
 4. **PNGdec** by Larry Bank/BitBank through Arduino Library Manager
 
-The v5.1-rc1 development baseline supplied for this release uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
+The v5.1-rc2 development baseline supplied for this release uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
 
 The following headers are supplied by the ESP32 Arduino core and should not normally be installed separately:
 
@@ -403,14 +403,14 @@ or:
 or:
 
 ```cpp
-#define WORLDCLOCK_BOARD BOARD_ELEGOO_EL_EB_009
+#define WORLDCLOCK_BOARD BOARD_AITRIP_ESP32_2432S028R
 ```
 
 Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.1-rc1";
+  "5.1-rc2";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -429,7 +429,7 @@ Set **Flash Size** to match the physical board:
 
 - Heltec WROOM profile: normally 8 MB
 - E32R28T: normally 4 MB
-- Elegoo EL-EB-009/CYD: normally 4 MB
+- AITRIP ESP32-2432S028R dual-USB CYD: normally 4 MB
 
 Choose a partition scheme that provides enough application space for the compiled sketch. If compilation reports that the sketch is too large, select a partition scheme with a larger application partition rather than removing project files at random.
 
@@ -538,18 +538,20 @@ The included profile preserves the settings proven on this board:
 
 These unusual values are intentional.
 
-#### Elegoo EL-EB-009 / ESP32-2432S028R CYD profile
+#### AITRIP ESP32-2432S028R dual-USB CYD profile
 
-The included profile starts with:
+This profile is intended for the AITRIP board with both USB-C and micro-USB connectors. It uses:
 
-- Standard 240 × 320 ILI9341 geometry
-- Rotation 1
-- Normal RGB order
+- ST7789 240 × 320 panel driver
+- Rotation 1 for the 320 × 240 World Clock layout
+- Normal RGB order and no display inversion
+- TFT pins `SCLK 14`, `MOSI 13`, `MISO 12`, `CS 15`, `DC 2`, backlight `21`
+- XPT2046 touch pins `CLK 25`, `MOSI 32`, `MISO 39`, `CS 33`, `IRQ 36`
+- microSD pins `CLK 18`, `MISO 19`, `MOSI 23`, `CS 5`
 - Nominal 4 MB flash
+- Integrated first-boot touch calibration enabled
 
-Touch remains intentionally disabled for this profile until the controller wiring and calibration are verified on physical hardware.
-
-Production revisions can differ. If the display is correctly landscape but upside down, change the profile rotation in `board_profiles.h` from `1` to `3`. If only red and blue are exchanged, change that profile's `rgbOrder` value.
+The ESP32-2432S028 name is used for several production revisions. This profile specifically targets the dual-USB ST7789 revision; the single-micro-USB ILI9341 version should use a different panel profile. If the image is landscape but upside down during validation, change the AITRIP profile rotation from `1` to `3`.
 
 ### Installation troubleshooting
 
@@ -604,7 +606,7 @@ Production revisions can differ. If the display is correctly landscape but upsid
 
 **Weather compilation or runtime problems**
 
-- No ArduinoJson installation is required; v5.1-rc1 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
+- No ArduinoJson installation is required; v5.1-rc2 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
 - Confirm that `HTTPClient.h` and `WiFiClientSecure.h` are available from the selected ESP32 board package.
 - Confirm that the partition scheme still provides enough application space after adding `67_Weather.ino`.
 - Persistent weather, radar, and basemap caching requires a writable microSD card; the firmware creates `/weather` automatically.

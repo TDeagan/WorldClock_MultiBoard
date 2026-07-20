@@ -9,8 +9,8 @@
 // The numeric board identifiers are declared in config.h before this file is
 // included. Display and SD values are inherited from the working WorldClock
 // 4.7.1 profiles. Touch wiring has been physically verified on the Heltec
-// WROOM and E32R28T boards. The Elegoo/CYD touch profile remains disabled
-// until a physical board can be tested.
+// WROOM and E32R28T boards. The AITRIP dual-USB CYD profile uses the same
+// verified XPT2046 wiring and is intended for physical validation here.
 
 struct BoardProfile {
   const char *name;
@@ -25,7 +25,7 @@ struct BoardProfile {
   int tftBacklight;
   bool backlightActiveHigh;
 
-  // ILI9341 panel configuration
+  // TFT panel configuration
   int memoryWidth;
   int memoryHeight;
   int panelWidth;
@@ -33,6 +33,9 @@ struct BoardProfile {
   int displayRotation;
   bool rgbOrder;
   bool invertDisplay;
+  int panelOffsetRotation;
+  int dummyReadPixelBits;
+  int dummyReadCommandBits;
 
   // microSD SPI
   int sdSclk;
@@ -69,7 +72,7 @@ struct BoardProfile {
 static constexpr BoardProfile PROFILE_HELTEC_WROOM_28 = {
   "Heltec ESP32-WROOM-32 2.8",
   14, 13, 12, 15, 2, -1, 21, true,
-  240, 320, 240, 320, 3, false, false,
+  240, 320, 240, 320, 3, false, false, 0, 8, 1,
   18, 19, 23, 5,
   true, 25, 32, 39, 33, 36,
   80, 9, 2, 22, 100,
@@ -80,7 +83,7 @@ static constexpr BoardProfile PROFILE_HELTEC_WROOM_28 = {
 static constexpr BoardProfile PROFILE_E32R28T = {
   "E32R28T ESP32-32E",
   14, 13, 12, 15, 2, -1, 21, true,
-  320, 240, 320, 240, 4, true, false,
+  320, 240, 320, 240, 4, true, false, 0, 8, 1,
   18, 19, 23, 5,
   true, 25, 32, 39, 33, 36,
   60, 9, 2, 22, 120,
@@ -88,15 +91,17 @@ static constexpr BoardProfile PROFILE_E32R28T = {
   4
 };
 
-// Display/SD values come from WorldClock 4.7.1. Touch is intentionally
-// disabled until the controller wiring and calibration are hardware-tested.
-static constexpr BoardProfile PROFILE_ELEGOO_EL_EB_009 = {
-  "Elegoo EL-EB-009 CYD (touch untested)",
+// AITRIP ESP32-2432S028R dual-USB CYD. The USB-C + micro-USB revision
+// uses an ST7789-class 240 x 320 controller. TFT, touch, and SD wiring are
+// the standard CYD pin assignments. Rotation 1 produces the 320 x 240
+// landscape layout used by World Clock.
+static constexpr BoardProfile PROFILE_AITRIP_ESP32_2432S028R = {
+  "AITRIP ESP32-2432S028R CYD 2USB",
   14, 13, 12, 15, 2, -1, 21, true,
-  240, 320, 240, 320, 1, false, false,
+  240, 320, 240, 320, 1, false, false, 0, 16, 1,
   18, 19, 23, 5,
-  false, 25, 32, 39, 33, 36,
-  120, 7, 2, 18, 80,
+  true, 25, 32, 39, 33, 36,
+  80, 9, 2, 22, 100,
   0,
   4
 };
@@ -111,9 +116,9 @@ static constexpr BoardProfile PROFILE_ELEGOO_EL_EB_009 = {
 #elif WORLDCLOCK_BOARD == BOARD_E32R28T
   static constexpr BoardProfile ACTIVE_BOARD =
     PROFILE_E32R28T;
-#elif WORLDCLOCK_BOARD == BOARD_ELEGOO_EL_EB_009
+#elif WORLDCLOCK_BOARD == BOARD_AITRIP_ESP32_2432S028R
   static constexpr BoardProfile ACTIVE_BOARD =
-    PROFILE_ELEGOO_EL_EB_009;
+    PROFILE_AITRIP_ESP32_2432S028R;
 #else
   #error "Unsupported WORLDCLOCK_BOARD selection"
 #endif
