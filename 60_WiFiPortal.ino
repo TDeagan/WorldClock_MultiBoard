@@ -1143,6 +1143,7 @@ bool ensureNetworkConfigured() {
   loadTimeSettings();
   loadLocationGridSettings();
   loadWeatherSettings();
+  loadMarketSettings();
   loadNetworkSettings();
 
   if (!networkSettings.configured) {

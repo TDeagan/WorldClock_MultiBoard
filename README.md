@@ -1,10 +1,10 @@
-# ESP32 World Clock v5.2-alpha2
+# ESP32 World Clock v5.3-alpha4
 
-ESP32 World Clock displays a live day/night world map on a 320 × 240 TFT screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, and saved-location weather.
+ESP32 World Clock displays a live day/night world map on a 320 × 240 TFT screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, saved-location weather, and a broad-market Market Mood display.
 
-The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts and a fixed-scale regional precipitation-radar image are cached on the card for immediate and offline display.
+The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts, a fixed-scale regional precipitation-radar image, and Market Mood graph data are cached on the card for immediate and offline display.
 
-Version 5.2-alpha2 retains the per-board display-tuning features and updates the touchscreen diagnostics interface. The page is now titled **Diagnostics**, and the pressure controls use explicit two-line **TOUCH / PRESSURE -** and **TOUCH / PRESSURE +** labels. It also clarifies that source maps must be 320 × 240, non-interlaced, 8-bit RGB PNG files without an alpha channel. Existing Wi-Fi, touch, weather, map-selection, and other World Clock settings are preserved.
+Version 5.3-alpha4 adds a **Market Mood** display based on an equal-weight composite of SPY, QQQ, and IWM. It provides TODAY and 30-session graphs, a lower-right `$` plus mood-face control, browser controls and diagnostics, and microSD caching. The mood categories are descriptive only; they are not an economic-health score, forecast, buy/sell signal, or investment advice. Existing Wi-Fi, touch, weather, display-tuning, map-selection, and other World Clock settings are preserved.
 
 ## Section 1: Using an Installed World Clock
 
@@ -15,6 +15,7 @@ The main display contains:
 - A world map blended between daylight and nighttime imagery according to the current position of the Sun.
 - Optional Sun, Moon, ISS, ISS orbit-track, home-location, and coordinate-grid overlays.
 - A lower-left weather control when weather is enabled and a home location has been saved.
+- A lower-right Market Mood control, exactly mirrored from the weather control, showing a `$` and a drawn mood-face icon.
 - A bottom status area showing local time, UTC time, and the local date.
 - The clock's web address, such as `http://192.168.1.42`, at the bottom center.
 
@@ -99,7 +100,7 @@ While the clock is operating normally:
 2. Connect the phone, tablet, or computer to the same Wi-Fi network as the clock.
 3. Enter the complete address in a browser, including `http://`.
 
-The control panel has four pages: **Settings**, **Weather**, **Diagnostics**, and **Maps**.
+The control panel has five pages: **Settings**, **Weather**, **Market Mood**, **Diagnostics**, and **Maps**.
 
 #### Settings
 
@@ -115,6 +116,7 @@ The Settings page shows the active configuration and permits changes to:
 - Home-location marker
 - 30-degree coordinate grid
 - Weather enabled or disabled
+- Market Mood enabled or disabled
 - Fahrenheit/mph/inches or Celsius/km/h/millimeters
 - Sun marker
 - Moon marker and phase
@@ -155,6 +157,30 @@ Opening the radar page requests a frame when none is cached or when the cached f
 Weather uses the saved coordinates exactly; it does not infer coordinates from the Wi-Fi network and it does not use a finger press on the world map. After a successful forecast, the firmware makes a low-frequency reverse-geocoding request to label those coordinates. The label is cached with the forecast, and coordinates remain the fallback if naming is unavailable. Change the point on the Settings or touchscreen Location page. Changing coordinates invalidates both weather caches. Changing units invalidates only the forecast values.
 
 Forecast data is provided by [Open-Meteo](https://open-meteo.com/). Radar data is provided by [RainViewer](https://www.rainviewer.com/). The radar basemap and resolved location names use data from OpenStreetMap contributors. Source attribution appears on the device and browser weather pages. The standard OpenStreetMap raster service requires no API key, but it is a community-funded best-effort service: the firmware identifies itself with a World Clock User-Agent, requests only tiles currently needed by the radar viewport, and retains those tiles on the SD card rather than prefetching regions or repeatedly downloading the same background.
+
+
+### Using Market Mood
+
+Market Mood is enabled by default. It can be disabled or re-enabled on the browser **Settings** page. When enabled, a control appears in the lower-right corner of the world map, exactly level with and the same size as the weather control. It contains a `$` and a custom drawn mood-face icon, so it does not depend on Unicode emoji support in the TFT font. Tap the control to open the persistent **MARKET MOOD** page.
+
+The mood is an equal-weight average of the daily percentage changes of:
+
+- **SPY** — broad U.S. large-cap equities
+- **QQQ** — Nasdaq-100 growth and technology exposure
+- **IWM** — smaller U.S. companies
+
+The face and label use five descriptive ranges: **VERY UPBEAT**, **UPBEAT**, **NEUTRAL**, **UNEASY**, and **DISTRESSED**. These labels summarize broad-market movement only. They do not measure the health of the economy and are not a prediction or investment recommendation.
+
+The touchscreen page has two graph tabs:
+
+- **TODAY** shows the equal-weight composite relative to the previous closes. The provider's five-minute bars are reduced to approximately ten-minute graph points. The horizontal scale marks the first, middle, and latest cached times using the clock's configured local time.
+- **30 DAYS** shows a cumulative equal-weight composite across the latest 30 trading sessions. Weekends and market holidays do not create empty points. The horizontal scale marks the oldest, middle, and newest cached trading dates.
+
+Both graph views include compact percentage ticks on the left edge. The axes use edge ticks and labels only; no graph grid is drawn. The page also shows the current daily changes for SPY, QQQ, and IWM, whether the regular session appears open or closed, the data age, and retrieval errors. It remains open until **CLOCK** is pressed, just like the radar page. **REFRESH** schedules both the current-session and 30-session retrievals.
+
+The browser **Market Mood** page displays both graphs, the three input values, cache age, refresh state, and the same mood classification. Normal current-session refresh is approximately every ten minutes. Longer history is refreshed less often. The latest valid snapshot is stored in `/market/market.bin`, remains visible while offline, and is not replaced by a failed request.
+
+The initial provider is Yahoo Finance's widely used but unofficial, no-key chart endpoint. It is isolated inside `68_Market.ino` so another provider can replace it later. Because it is undocumented and best effort, it may rate-limit, change, or become unavailable without notice. The display identifies the data as delayed/best effort and never makes clock operation depend on it.
 
 ### Re-entering setup with the hardware button
 
@@ -236,6 +262,7 @@ The Diagnostics page reports information useful for troubleshooting, including:
 - Selected map and source/cache paths
 - Day and night PNG/cache status
 - Weather enable state, units, forecast/radar cache ages, pending refreshes, and retrieval errors
+- Market Mood enable state, current mood, graph-point counts, refresh state, and provider errors
 - ISS data and orbit-track status
 - Last system error and error detail
 - Touch hardware, calibration, rotation, state, and pressure-threshold status
@@ -256,6 +283,7 @@ Use the browser's **Refresh** link to update the values.
 - Wi-Fi, NTP, and microSD failures are retried automatically.
 - Weather forecasts refresh in the background every 30 minutes when weather and a saved location are available.
 - After a radar image has been requested, stale radar is refreshed in the background every 15 minutes.
+- When Market Mood is enabled, current-session market data refreshes approximately every 10 minutes; 30-session history refreshes less often.
 - Sun, Moon, and terminator positions are calculated by the clock.
 - ISS marker and track features require internet access to retrieve a current ISS position.
 
@@ -321,6 +349,14 @@ Use the browser's **Refresh** link to update the values.
 - Confirm that the microSD card is mounted. Forecasts can be retrieved without the card, but persistent forecast and radar caching require it.
 - A failed request leaves the last successful cached data in place. Wait at least one minute before repeated retries.
 
+**Market Mood remains at WAITING or shows stale data**
+
+- Confirm that Market Mood is enabled on the browser Settings page.
+- Confirm that the microSD card is available; the market snapshot is cached under `/market`.
+- Open browser Diagnostics and review **Market error**, **Market refresh**, and graph-point counts.
+- The no-key provider is unofficial and best effort. A temporary rate limit or provider change does not affect the clock, weather, or cached market display.
+- Use **REFRESH** on the Market Mood page after network access returns.
+
 ## Section 2: Installing the Firmware on Your Own Device
 
 ### Supported target boards
@@ -358,7 +394,7 @@ Install:
 3. **LovyanGFX** through Arduino Library Manager
 4. **PNGdec** by Larry Bank/BitBank through Arduino Library Manager
 
-The v5.2-alpha2 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
+The v5.3-alpha4 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
 
 The following headers are supplied by the ESP32 Arduino core and should not normally be installed separately:
 
@@ -398,6 +434,7 @@ WorldClock_MultiBoard/
 ├── 65_ISS.ino
 ├── 66_OrbitTrack.ino
 ├── 67_Weather.ino
+├── 68_Market.ino
 ├── 70_TouchUI.ino
 ├── 90_Application.ino
 ├── XPT2046Soft.cpp
@@ -433,7 +470,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.2-alpha2";
+  "5.3-alpha4";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -633,7 +670,7 @@ The ESP32-2432S028 name is used for several production revisions. This profile s
 
 **Weather compilation or runtime problems**
 
-- No ArduinoJson installation is required; v5.2-alpha2 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
+- No ArduinoJson installation is required; v5.3-alpha4 uses small built-in parsers and the HTTP/TLS classes supplied by the ESP32 Arduino core.
 - Confirm that `HTTPClient.h` and `WiFiClientSecure.h` are available from the selected ESP32 board package.
 - Confirm that the partition scheme still provides enough application space after adding `67_Weather.ino`.
 - Persistent weather, radar, and basemap caching requires a writable microSD card; the firmware creates `/weather` automatically.
@@ -646,3 +683,13 @@ To support another board, add a `BoardProfile` entry in `board_profiles.h`, assi
 A new profile should also specify `defaultBacklightBrightness`, `defaultDayMapGamma`, and `defaultNightMapGamma`. Start at gamma `1.00`, use the Display Test page to select a comfortable backlight level, then compare actual day and night maps before changing the gamma defaults. Controller gamma, VCOM, and panel power registers remain at the LovyanGFX defaults in this release.
 
 When changing display geometry or map dimensions, review all map-coordinate, overlay, cache-size, and status-layout constants together. The current renderer and PNG decoder explicitly assume a 320 × 240 source map and 16-bit RGB565 cache files.
+
+
+## v5.3-alpha3 stability correction
+
+Large Market Mood scratch buffers were moved off the loop-task stack, and intraday/daily fetches are split across service passes.
+
+
+## v5.3-alpha4 graph-scale update
+
+Market Mood graphs now include three horizontal timeline ticks with actual cached times or dates, plus compact vertical percentage ticks. The touchscreen and browser charts use edge axes and ticks without grid lines.

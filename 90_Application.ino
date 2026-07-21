@@ -179,6 +179,7 @@ void initializeWorldClock() {
 
   if (sdReady) {
     initializeWeatherService();
+    initializeMarketService();
   }
 
   if (!sdReady) {
@@ -282,6 +283,7 @@ void serviceWorldClock() {
 
     if (sdReady) {
       initializeWeatherService();
+      initializeMarketService();
     }
 
     if (
@@ -295,9 +297,10 @@ void serviceWorldClock() {
   }
 
   serviceWeather();
+  serviceMarket();
 
   // While a touch page is open, keep Wi-Fi, the web server, configuration
-  // button, weather service, and recovery services alive, but do not let
+  // button, weather/market services, and recovery services alive, but do not let
   // scheduled clock/map painting overwrite the touchscreen interface.
   if (touchUiIsOpen()) {
     delay(10);

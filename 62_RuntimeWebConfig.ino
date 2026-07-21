@@ -18,6 +18,7 @@ bool runtimePendingMapTuningChanged = false;
 bool runtimePendingLocationGridChanged = false;
 bool runtimePendingHomeCoordinatesChanged = false;
 bool runtimePendingWeatherChanged = false;
+bool runtimePendingMarketChanged = false;
 unsigned long runtimeActionAt = 0;
 
 bool runtimeTouchCalibrationPending = false;
@@ -106,13 +107,17 @@ String pageHeader(const String &title) {
             "margin-bottom:12px;background:#24435a}.err{background:#6b2632}"
             "table{width:100%;border-collapse:collapse}td{padding:7px;border-bottom:1px solid #40505f}"
             "td:first-child{color:#bec8d2}.nav{margin-bottom:16px}.nav a{margin-right:14px}"
-            ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}.map-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.map-card{border:1px solid #40505f;border-radius:10px;padding:12px;background:#14212c}.map-card.selected{border-color:#ffd43b}.map-card h3{overflow-wrap:anywhere;margin:10px 0}.map-thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#05080b;border-radius:7px}.badge{display:inline-block;padding:4px 7px;border-radius:999px;margin:2px 4px 2px 0;font-size:.82rem;background:#40505f}.ok{background:#28603d}.bad{background:#7a2f3b}.selected-badge{background:#7b6418}.small-button{margin-top:9px;padding:8px;font-size:.9rem}.muted{opacity:.65}.radar-image{display:block;width:256px;max-width:100%;height:auto;margin:12px auto;background:#14212c;border:1px solid #40505f;border-radius:7px}</style><title>");
+            ".note{font-size:.9rem;color:#bec8d2;line-height:1.4}.map-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.map-card{border:1px solid #40505f;border-radius:10px;padding:12px;background:#14212c}.map-card.selected{border-color:#ffd43b}.map-card h3{overflow-wrap:anywhere;margin:10px 0}.map-thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#05080b;border-radius:7px}.badge{display:inline-block;padding:4px 7px;border-radius:999px;margin:2px 4px 2px 0;font-size:.82rem;background:#40505f}.ok{background:#28603d}.bad{background:#7a2f3b}.selected-badge{background:#7b6418}.small-button{margin-top:9px;padding:8px;font-size:.9rem}.muted{opacity:.65}.radar-image{display:block;width:256px;max-width:100%;height:auto;margin:12px auto;background:#14212c;border:1px solid #40505f;border-radius:7px}.market-chart{display:block;width:100%;height:auto;margin:12px auto;background:#101820;border:1px solid #40505f;border-radius:7px}.mood{font-weight:bold;font-size:1.1rem}</style><title>");
   page += htmlEscapeRuntime(title);
   page += F("</title></head><body><div class=\"card\"><div class=\"nav\">"
             "<a href=\"/\">Settings</a>");
 
   if (homeLocationIsConfigured()) {
     page += F("<a href=\"/weather\">Weather</a>");
+  }
+
+  if (marketSettings.enabled) {
+    page += F("<a href=\"/market\">Market Mood</a>");
   }
 
   page += F("<a href=\"/diagnostics\">Diagnostics</a>"
@@ -296,6 +301,16 @@ String runtimeConfigurationPage(
           : weatherSettings.useFahrenheit
               ? "Enabled; Fahrenheit"
               : "Enabled; Celsius"
+  );
+
+  summaryRow(
+    "Market Mood",
+    !marketSettings.enabled
+      ? "Disabled"
+      : marketDataAvailable()
+          ? String(marketMoodLabel(currentMarketMoodLevel())) +
+              "; " + marketPercentText(marketSnapshot.currentMoodBasisPoints)
+          : "Enabled; waiting for data"
   );
 
   summaryRow(
@@ -604,6 +619,19 @@ String runtimeConfigurationPage(
     "<p class=\"note\">Weather uses the saved latitude and longitude. "
     "Coordinates 0,0 mean no location: weather is disabled and hidden. "
     "Saving any other valid location automatically enables weather.</p>"
+    "<label>Market Mood</label>"
+    "<label class=\"check\">"
+    "<input type=\"checkbox\" id=\"marketEnabled\""
+  );
+
+  if (marketSettings.enabled) {
+    page += F(" checked");
+  }
+
+  page += F(
+    ">Enable SPY / QQQ / IWM Market Mood</label>"
+    "<p class=\"note\">Uses a no-key, best-effort delayed market feed. "
+    "The mood graphic is descriptive only and is not investment advice.</p>"
     "<label>Map overlays</label>"
     "<label class=\"check\">"
     "<input type=\"checkbox\" id=\"showSun\""
@@ -684,7 +712,7 @@ String runtimeConfigurationPage(
         "add('homeLongitudeSign',document.getElementById('homeLongitudeSign').value);"
         "add('homeLongitudeMagnitude',document.getElementById('homeLongitudeMagnitude').value);"
         "add('weatherUnit',document.getElementById('weatherUnit').value);"
-        "var checks=['showSeconds','showHomeMarker','showCoordinateGrid','weatherEnabled',"
+        "var checks=['showSeconds','showHomeMarker','showCoordinateGrid','weatherEnabled','marketEnabled',"
           "'showSun','showMoon','showISS','showIssTrack','issTrackDotted'];"
         "for(var i=0;i<checks.length;i++){"
           "var e=document.getElementById(checks[i]);"
@@ -902,6 +930,9 @@ void handleRuntimeSave() {
   const bool requestedWeatherFahrenheit =
     runtimeServer.arg("weatherUnit") != "C";
 
+  const bool requestedMarketEnabled =
+    runtimeServer.hasArg("marketEnabled");
+
   const bool previouslyConfiguredLocation =
     homeLocationIsConfigured();
 
@@ -972,6 +1003,9 @@ void handleRuntimeSave() {
     requestedWeatherFahrenheit != weatherSettings.useFahrenheit ||
     runtimePendingHomeCoordinatesChanged;
 
+  runtimePendingMarketChanged =
+    requestedMarketEnabled != marketSettings.enabled;
+
   networkSettings.utcOffsetMinutes =
     offsetMinutes;
 
@@ -1007,6 +1041,8 @@ void handleRuntimeSave() {
 
   weatherSettings.enabled = effectiveWeatherEnabled;
   weatherSettings.useFahrenheit = requestedWeatherFahrenheit;
+
+  marketSettings.enabled = requestedMarketEnabled;
 
   locationGridSettings.showHomeMarker =
     requestedShowHomeMarker;
@@ -1049,15 +1085,19 @@ void handleRuntimeSave() {
   const bool weatherSaved =
     saveWeatherSettings();
 
+  const bool marketSaved =
+    saveMarketSettings();
+
   Serial.printf(
     "Runtime web: persistence results; "
-    "offset=%d time=%d overlays=%d display=%d location=%d weather=%d\n",
+    "offset=%d time=%d overlays=%d display=%d location=%d weather=%d market=%d\n",
     offsetSaved,
     timeSaved,
     overlaysSaved,
     displaySaved,
     locationSaved,
-    weatherSaved
+    weatherSaved,
+    marketSaved
   );
 
   runtimeApplyPending = true;
@@ -1069,7 +1109,8 @@ void handleRuntimeSave() {
     !overlaysSaved ||
     !displaySaved ||
     !locationSaved ||
-    !weatherSaved;
+    !weatherSaved ||
+    !marketSaved;
 
   String message =
     "Settings accepted. The display is updating now.";
@@ -1486,6 +1527,359 @@ void handleWeatherRadarImage() {
   image.close();
 }
 
+
+String marketMoodEmojiHtml(MarketMoodLevel level) {
+  switch (level) {
+    case MarketMoodLevel::VeryUpbeat: return "&#x1F600;";
+    case MarketMoodLevel::Upbeat: return "&#x1F642;";
+    case MarketMoodLevel::Neutral: return "&#x1F610;";
+    case MarketMoodLevel::Uneasy: return "&#x1F61F;";
+    case MarketMoodLevel::Distressed: return "&#x1F623;";
+    case MarketMoodLevel::Unknown:
+    default: return "&#x2753;";
+  }
+}
+
+String marketWebHorizontalLabel(time_t timestamp, bool intraday) {
+  if (timestamp <= 0) {
+    return "--";
+  }
+
+  tm localTm {};
+  localtime_r(&timestamp, &localTm);
+  char label[32];
+
+  if (intraday) {
+    if (timeSettings.use24Hour) {
+      snprintf(
+        label,
+        sizeof(label),
+        "%02d:%02d",
+        localTm.tm_hour,
+        localTm.tm_min
+      );
+    } else {
+      int hour = localTm.tm_hour % 12;
+      if (hour == 0) {
+        hour = 12;
+      }
+
+      snprintf(
+        label,
+        sizeof(label),
+        "%d:%02d",
+        hour,
+        localTm.tm_min
+      );
+    }
+  } else {
+    snprintf(
+      label,
+      sizeof(label),
+      "%d/%d",
+      localTm.tm_mon + 1,
+      localTm.tm_mday
+    );
+  }
+
+  return String(label);
+}
+
+String marketWebScaleLabel(int16_t basisPoints) {
+  const float percent = basisPoints / 100.0f;
+  String label;
+
+  if (percent > 0.0001f) {
+    label += '+';
+  }
+
+  label += String(percent, 1);
+  label += '%';
+  return label;
+}
+
+String buildMarketSvg(
+  const MarketGraphPoint *points,
+  size_t pointCount,
+  const String &label,
+  bool intraday
+) {
+  if (pointCount < 2) {
+    return String("<div class=\"note\">") +
+      htmlEscapeRuntime(label) +
+      ": not enough cached points yet.</div>";
+  }
+
+  int16_t minimum = 0;
+  int16_t maximum = 0;
+
+  for (size_t index = 0; index < pointCount; ++index) {
+    minimum = min(minimum, points[index].moodBasisPoints);
+    maximum = max(maximum, points[index].moodBasisPoints);
+  }
+
+  if (maximum - minimum < 40) {
+    const int16_t middle = static_cast<int16_t>((maximum + minimum) / 2);
+    minimum = middle - 20;
+    maximum = middle + 20;
+  }
+
+  static constexpr int LEFT = 58;
+  static constexpr int RIGHT = 584;
+  static constexpr int TOP = 28;
+  static constexpr int BOTTOM = 146;
+
+  const int valueRange = maximum - minimum;
+  const int plotHeight = BOTTOM - TOP;
+
+  auto valueToY = [&](int16_t value) {
+    return valueRange <= 0
+      ? (TOP + BOTTOM) / 2
+      : BOTTOM - static_cast<int>(
+          (value - minimum) * plotHeight / valueRange
+        );
+  };
+
+  const size_t middleIndex = pointCount / 2;
+  const int middleX = (LEFT + RIGHT) / 2;
+
+  String svg;
+  svg.reserve(2600);
+  svg += F("<svg class=\"market-chart\" viewBox=\"0 0 600 180\" "
+           "role=\"img\" aria-label=\"");
+  svg += htmlEscapeRuntime(label);
+  svg += F(" Market Mood graph\">"
+           "<rect x=\"0\" y=\"0\" width=\"600\" height=\"180\" "
+           "rx=\"10\" fill=\"#101820\"/>"
+           "<text x=\"16\" y=\"19\" fill=\"#bec8d2\" "
+           "font-size=\"14\">");
+  svg += htmlEscapeRuntime(label);
+  svg += F("</text>"
+           "<line x1=\"58\" y1=\"28\" x2=\"58\" y2=\"146\" "
+           "stroke=\"#536473\"/>"
+           "<line x1=\"58\" y1=\"146\" x2=\"584\" y2=\"146\" "
+           "stroke=\"#536473\"/>");
+
+  auto appendValueTick = [&](int y, int16_t value) {
+    svg += F("<line x1=\"54\" y1=\"");
+    svg += String(y);
+    svg += F("\" x2=\"62\" y2=\"");
+    svg += String(y);
+    svg += F("\" stroke=\"#718291\"/>"
+             "<text x=\"50\" y=\"");
+    svg += String(y + 4);
+    svg += F("\" fill=\"#9aa8b3\" font-size=\"11\" "
+             "text-anchor=\"end\">");
+    svg += marketWebScaleLabel(value);
+    svg += F("</text>");
+  };
+
+  appendValueTick(TOP, maximum);
+  appendValueTick(BOTTOM, minimum);
+
+  if (minimum < 0 && maximum > 0 && valueRange > 0) {
+    const int zeroY = valueToY(0);
+
+    if (zeroY - TOP >= 12 && BOTTOM - zeroY >= 12) {
+      appendValueTick(zeroY, 0);
+    }
+  }
+
+  const int tickXs[3] = {LEFT, middleX, RIGHT};
+  const size_t labelIndexes[3] = {0, middleIndex, pointCount - 1};
+  const char *anchors[3] = {"start", "middle", "end"};
+
+  for (size_t tick = 0; tick < 3; ++tick) {
+    svg += F("<line x1=\"");
+    svg += String(tickXs[tick]);
+    svg += F("\" y1=\"142\" x2=\"");
+    svg += String(tickXs[tick]);
+    svg += F("\" y2=\"151\" stroke=\"#718291\"/>"
+             "<text x=\"");
+    svg += String(tickXs[tick]);
+    svg += F("\" y=\"168\" fill=\"#9aa8b3\" font-size=\"11\" "
+             "text-anchor=\"");
+    svg += anchors[tick];
+    svg += F("\">");
+    svg += marketWebHorizontalLabel(
+      points[labelIndexes[tick]].timestamp,
+      intraday
+    );
+    svg += F("</text>");
+  }
+
+  svg += F("<polyline fill=\"none\" stroke=\"#5ed38b\" "
+           "stroke-width=\"4\" stroke-linecap=\"round\" "
+           "stroke-linejoin=\"round\" points=\"");
+
+  for (size_t index = 0; index < pointCount; ++index) {
+    const int x = LEFT + static_cast<int>(
+      index * (RIGHT - LEFT) / (pointCount - 1)
+    );
+    const int y = valueToY(points[index].moodBasisPoints);
+
+    if (index > 0) {
+      svg += ' ';
+    }
+    svg += String(x);
+    svg += ',';
+    svg += String(y);
+  }
+
+  svg += F("\"/></svg>");
+  return svg;
+}
+
+String buildMarketPage(
+  const String &message = "",
+  bool error = false
+) {
+  String page = pageHeader("Market Mood");
+
+  if (message.length()) {
+    page += F("<div class=\"msg");
+    if (error) {
+      page += F(" err");
+    }
+    page += F("\">");
+    page += htmlEscapeRuntime(message);
+    page += F("</div>");
+  }
+
+  page += F("<table>");
+
+  auto row = [&](const String &name, const String &value) {
+    page += F("<tr><td>");
+    page += htmlEscapeRuntime(name);
+    page += F("</td><td>");
+    page += value;
+    page += F("</td></tr>");
+  };
+
+  row("Feature", marketSettings.enabled ? "Enabled" : "Disabled");
+  row("Symbols", "SPY, QQQ, IWM");
+  row("Refresh", "Approximately every 10 minutes");
+
+  if (!marketSettings.enabled) {
+    page += F("</table>"
+      "<p>Enable Market Mood on the <a href=\"/\">Settings</a> page. "
+      "The feature is disabled by default.</p>"
+      "<p class=\"note\">Market Mood is a descriptive broad-market summary, "
+      "not an economic-health measure or investment advice.</p>");
+    page += pageFooter();
+    return page;
+  }
+
+  if (marketDataAvailable()) {
+    const MarketMoodLevel mood = currentMarketMoodLevel();
+    String moodValue = "<span class=\"mood\">";
+    moodValue += marketMoodEmojiHtml(mood);
+    moodValue += ' ';
+    moodValue += htmlEscapeRuntime(marketMoodLabel(mood));
+    moodValue += " &nbsp; ";
+    moodValue += htmlEscapeRuntime(
+      marketPercentText(marketSnapshot.currentMoodBasisPoints)
+    );
+    moodValue += "</span>";
+
+    row("Current mood", moodValue);
+    row("Session", marketSnapshot.marketOpen ? "Market open" : "Market closed");
+    row("Latest data", htmlEscapeRuntime(marketAgeText()));
+    row(
+      "30-session trend",
+      htmlEscapeRuntime(
+        marketPercentText(marketSnapshot.thirtyDayMoodBasisPoints)
+      )
+    );
+  } else {
+    row("Current mood", "Waiting for market data");
+    row("Latest data", htmlEscapeRuntime(marketAgeText()));
+  }
+
+  row(
+    "Refresh state",
+    marketRefreshIsPending() ? "Pending" : "Idle"
+  );
+  page += F("</table>");
+
+  if (marketDataAvailable()) {
+    page += F("<h2>Broad-market inputs</h2><table>");
+    for (size_t index = 0; index < 3; ++index) {
+      const MarketQuote &quote = marketSnapshot.quotes[index];
+      String value = String(quote.price, 2);
+      value += " &nbsp; ";
+      if (quote.changePercent > 0.0001f) {
+        value += '+';
+      }
+      value += String(quote.changePercent, 2);
+      value += '%';
+      row(quote.symbol, value);
+    }
+    page += F("</table><h2>Today</h2>");
+    page += buildMarketSvg(
+      marketSnapshot.today,
+      marketSnapshot.todayCount,
+      "TODAY",
+      true
+    );
+    page += F("<h2>30 trading sessions</h2>");
+    page += buildMarketSvg(
+      marketSnapshot.thirtyDay,
+      marketSnapshot.thirtyDayCount,
+      "30 SESSIONS",
+      false
+    );
+  } else {
+    page += F("<p>No market snapshot is cached yet.</p>");
+  }
+
+  if (marketLastError().length()) {
+    page += F("<div class=\"msg err\">");
+    page += htmlEscapeRuntime(marketLastError());
+    page += F("</div>");
+  }
+
+  page += F(
+    "<a class=\"button\" href=\"/market/refresh\">Refresh Market Mood</a>"
+    "<p class=\"note\">The TODAY line is the average percentage movement "
+    "of SPY, QQQ, and IWM relative to their previous closes. The 30-session "
+    "line compounds the same equal-weight daily composite. Data is delayed, "
+    "best effort, and cached on the microSD card. Source: Yahoo Finance "
+    "chart data through an unofficial integration. It is not investment advice.</p>"
+  );
+
+  page += pageFooter();
+  return page;
+}
+
+void handleMarket() {
+  if (marketFeatureAvailable() && marketDataIsStale()) {
+    requestMarketRefresh(marketSnapshot.thirtyDayCount == 0);
+  }
+
+  sendRuntimeHtml(200, buildMarketPage());
+}
+
+void handleMarketRefresh() {
+  if (!marketFeatureAvailable()) {
+    sendRuntimeHtml(
+      409,
+      buildMarketPage(
+        "Enable Market Mood before refreshing.",
+        true
+      )
+    );
+    return;
+  }
+
+  requestMarketRefresh(true);
+  runtimeServer.sendHeader("Refresh", "4; url=/market");
+  sendRuntimeHtml(
+    202,
+    buildMarketPage("Market Mood refresh scheduled.")
+  );
+}
+
 void handleMaps() {
   const String message =
     runtimeMapResultMessage;
@@ -1848,6 +2242,36 @@ String buildDiagnosticsPage() {
       : "None"
   );
   row(
+    "Market Mood",
+    marketSettings.enabled ? "Enabled" : "Disabled"
+  );
+  row(
+    "Market mood",
+    marketDataAvailable()
+      ? String(marketMoodLabel(currentMarketMoodLevel())) +
+          " " + marketPercentText(marketSnapshot.currentMoodBasisPoints)
+      : "No cached data"
+  );
+  row(
+    "Market session",
+    marketDataAvailable()
+      ? marketSnapshot.marketOpen ? "Open" : "Closed"
+      : "Unknown"
+  );
+  row(
+    "Market graph points",
+    String(marketSnapshot.todayCount) + " today; " +
+      String(marketSnapshot.thirtyDayCount) + " of 30 sessions"
+  );
+  row(
+    "Market refresh",
+    marketRefreshIsPending() ? "Pending" : "Idle"
+  );
+  row(
+    "Market error",
+    marketLastError().length() ? marketLastError() : "None"
+  );
+  row(
     "Coordinate grid",
     locationGridSettings.showCoordinateGrid
       ? "Shown; 30-degree spacing"
@@ -2185,6 +2609,12 @@ void startRuntimeConfigServer() {
     HTTP_GET,
     handleWeatherRadarImage
   );
+  runtimeServer.on(MARKET_PATH, HTTP_GET, handleMarket);
+  runtimeServer.on(
+    MARKET_REFRESH_PATH,
+    HTTP_GET,
+    handleMarketRefresh
+  );
   runtimeServer.on(DIAGNOSTICS_PATH, HTTP_GET, handleDiagnostics);
   runtimeServer.on(
     TOUCH_RECALIBRATE_PATH,
@@ -2320,6 +2750,9 @@ void serviceRuntimeConfigServer() {
     const bool weatherChanged =
       runtimePendingWeatherChanged;
 
+    const bool marketChanged =
+      runtimePendingMarketChanged;
+
     runtimePendingTimeZoneChanged = false;
     runtimePendingClockDisplayChanged = false;
     runtimePendingOrientationChanged = false;
@@ -2328,12 +2761,13 @@ void serviceRuntimeConfigServer() {
     runtimePendingLocationGridChanged = false;
     runtimePendingHomeCoordinatesChanged = false;
     runtimePendingWeatherChanged = false;
+    runtimePendingMarketChanged = false;
 
     Serial.printf(
       "Runtime web: applying settings; "
       "timeZoneChanged=%d clockDisplayChanged=%d "
       "orientationChanged=%d brightnessChanged=%d mapTuningChanged=%d "
-      "locationGridChanged=%d homeCoordinatesChanged=%d weatherChanged=%d\n",
+      "locationGridChanged=%d homeCoordinatesChanged=%d weatherChanged=%d marketChanged=%d\n",
       timeZoneChanged,
       clockDisplayChanged,
       orientationChanged,
@@ -2341,7 +2775,8 @@ void serviceRuntimeConfigServer() {
       mapTuningChanged,
       locationGridChanged,
       homeCoordinatesChanged,
-      weatherChanged
+      weatherChanged,
+      marketChanged
     );
 
     if (timeZoneChanged) {
@@ -2371,6 +2806,11 @@ void serviceRuntimeConfigServer() {
       if (weatherFeatureAvailable()) {
         requestWeatherForecastRefresh();
       }
+    }
+
+    if (marketChanged && marketFeatureAvailable()) {
+      initializeMarketService();
+      requestMarketRefresh(true);
     }
 
     if (

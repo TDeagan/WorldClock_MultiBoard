@@ -1,9 +1,9 @@
 // ============================================================
-// WorldClock Version 5.2-alpha2 touchscreen user interface
+// WorldClock Version 5.3-alpha4 touchscreen user interface
 // ============================================================
 //
-// Version 5.2 adds display brightness and map-gamma tuning while retaining
-// the Version 5 calibration, Wi-Fi, weather, radar, map, and keyboard controls.
+// Version 5.3 adds a persistent Market Mood page and lower-right mood control
+// while retaining calibration, Wi-Fi, weather, radar, map, and display tuning.
 // ============================================================
 
 namespace {
@@ -12,6 +12,7 @@ enum class TouchUiPage : uint8_t {
   Clock,
   Weather,
   WeatherRadar,
+  Market,
   MainMenu,
   TimeDisplay,
   Location,
@@ -29,10 +30,14 @@ enum class TouchUiButtonId : uint8_t {
   None,
   OpenMenu,
   OpenWeather,
+  OpenMarket,
   WeatherRadar,
   WeatherForecast,
   WeatherRefresh,
   WeatherRadarRefresh,
+  MarketToday,
+  MarketThirtyDays,
+  MarketRefresh,
   TimeDisplay,
   Location,
   Overlays,
@@ -132,6 +137,11 @@ enum class TouchKeyboardTarget : uint8_t {
   Password
 };
 
+enum class TouchMarketPeriod : uint8_t {
+  Today,
+  ThirtyDays
+};
+
 enum class TouchKeyboardCellKind : uint8_t {
   Character,
   Space,
@@ -165,6 +175,13 @@ static constexpr TouchUiButton CLOCK_WEATHER_BUTTON = {
   WEATHER_BUTTON_X, WEATHER_BUTTON_Y, WEATHER_BUTTON_W, WEATHER_BUTTON_H,
   "WEATHER",
   0x18E3
+};
+
+static constexpr TouchUiButton CLOCK_MARKET_BUTTON = {
+  TouchUiButtonId::OpenMarket,
+  MARKET_BUTTON_X, MARKET_BUTTON_Y, MARKET_BUTTON_W, MARKET_BUTTON_H,
+  "MARKET",
+  0x2104
 };
 
 static constexpr TouchUiButton WEATHER_RADAR_BUTTON = {
@@ -205,6 +222,34 @@ static constexpr TouchUiButton RADAR_REFRESH_BUTTON = {
 static constexpr TouchUiButton RADAR_HOME_BUTTON = {
   TouchUiButtonId::Home,
   216, 207, 96, 27,
+  "CLOCK",
+  TFT_DARKGREEN
+};
+
+static constexpr TouchUiButton MARKET_TODAY_BUTTON = {
+  TouchUiButtonId::MarketToday,
+  8, 126, 148, 28,
+  "TODAY",
+  TFT_NAVY
+};
+
+static constexpr TouchUiButton MARKET_THIRTY_DAY_BUTTON = {
+  TouchUiButtonId::MarketThirtyDays,
+  164, 126, 148, 28,
+  "30 DAYS",
+  TFT_PURPLE
+};
+
+static constexpr TouchUiButton MARKET_REFRESH_BUTTON = {
+  TouchUiButtonId::MarketRefresh,
+  8, 207, 148, 27,
+  "REFRESH",
+  TFT_NAVY
+};
+
+static constexpr TouchUiButton MARKET_HOME_BUTTON = {
+  TouchUiButtonId::Home,
+  164, 207, 148, 27,
   "CLOCK",
   TFT_DARKGREEN
 };
@@ -951,7 +996,8 @@ static constexpr TouchUiButton DISPLAY_TEST_HOME = {
 };
 
 static constexpr const TouchUiButton *CLOCK_BUTTONS[] = {
-  &CLOCK_WEATHER_BUTTON
+  &CLOCK_WEATHER_BUTTON,
+  &CLOCK_MARKET_BUTTON
 };
 
 static constexpr const TouchUiButton *WEATHER_BUTTONS[] = {
@@ -964,6 +1010,13 @@ static constexpr const TouchUiButton *WEATHER_RADAR_BUTTONS[] = {
   &RADAR_FORECAST_BUTTON,
   &RADAR_REFRESH_BUTTON,
   &RADAR_HOME_BUTTON
+};
+
+static constexpr const TouchUiButton *MARKET_BUTTONS[] = {
+  &MARKET_TODAY_BUTTON,
+  &MARKET_THIRTY_DAY_BUTTON,
+  &MARKET_REFRESH_BUTTON,
+  &MARKET_HOME_BUTTON
 };
 
 static constexpr const TouchUiButton *MAIN_MENU_BUTTONS[] = {
@@ -1085,6 +1138,9 @@ static constexpr const TouchUiButton *DISPLAY_TEST_BUTTONS[] = {
 TouchUiPage activeTouchUiPage =
   TouchUiPage::Clock;
 
+TouchMarketPeriod touchMarketPeriod =
+  TouchMarketPeriod::Today;
+
 bool touchUiInitialized = false;
 unsigned long touchUiLastActivityAt = 0;
 unsigned long touchUiLastDiagnosticsDrawAt = 0;
@@ -1178,6 +1234,7 @@ void drawTouchUiRow(int y, const char *label);
 void drawTouchUiMainMenu();
 void drawTouchUiWeather();
 void drawTouchUiWeatherRadar();
+void drawTouchUiMarket();
 const char *touchUiPageTitle(TouchUiPage page);
 void drawTouchUiTimeDisplay();
 void drawTouchUiLocation();
@@ -1279,6 +1336,13 @@ void touchUiButtonsForPage(
       buttonCountOut =
         sizeof(WEATHER_RADAR_BUTTONS) /
         sizeof(WEATHER_RADAR_BUTTONS[0]);
+      break;
+
+    case TouchUiPage::Market:
+      buttonsOut = MARKET_BUTTONS;
+      buttonCountOut =
+        sizeof(MARKET_BUTTONS) /
+        sizeof(MARKET_BUTTONS[0]);
       break;
 
     case TouchUiPage::MainMenu:
@@ -1407,6 +1471,17 @@ TouchUiButtonId touchUiButtonAt(
       )
     ) {
       return TouchUiButtonId::OpenWeather;
+    }
+
+    if (
+      marketFeatureAvailable() &&
+      pointInsideTouchUiButton(
+        x,
+        y,
+        CLOCK_MARKET_BUTTON
+      )
+    ) {
+      return TouchUiButtonId::OpenMarket;
     }
 
     if (
@@ -2323,6 +2398,351 @@ void drawTouchUiWeatherRadar() {
   }
 }
 
+
+String touchMarketHorizontalLabel(time_t timestamp, bool intraday) {
+  if (timestamp <= 0) {
+    return "--";
+  }
+
+  tm localTm {};
+  localtime_r(&timestamp, &localTm);
+  char label[32];
+
+  if (intraday) {
+    if (timeSettings.use24Hour) {
+      snprintf(
+        label,
+        sizeof(label),
+        "%02d:%02d",
+        localTm.tm_hour,
+        localTm.tm_min
+      );
+    } else {
+      int hour = localTm.tm_hour % 12;
+      if (hour == 0) {
+        hour = 12;
+      }
+
+      snprintf(
+        label,
+        sizeof(label),
+        "%d:%02d",
+        hour,
+        localTm.tm_min
+      );
+    }
+  } else {
+    snprintf(
+      label,
+      sizeof(label),
+      "%d/%d",
+      localTm.tm_mon + 1,
+      localTm.tm_mday
+    );
+  }
+
+  return String(label);
+}
+
+String touchMarketScaleLabel(int16_t basisPoints) {
+  const float percent = basisPoints / 100.0f;
+  String label;
+
+  if (percent > 0.0001f) {
+    label += '+';
+  }
+
+  label += String(percent, 1);
+  label += '%';
+  return label;
+}
+
+void drawTouchUiMarketGraph() {
+  static constexpr int GRAPH_X = 8;
+  static constexpr int GRAPH_Y = 32;
+  static constexpr int GRAPH_W = 304;
+  static constexpr int GRAPH_H = 89;
+
+  lcd.fillRoundRect(
+    GRAPH_X,
+    GRAPH_Y,
+    GRAPH_W,
+    GRAPH_H,
+    5,
+    0x1082
+  );
+
+  lcd.drawRoundRect(
+    GRAPH_X,
+    GRAPH_Y,
+    GRAPH_W,
+    GRAPH_H,
+    5,
+    TFT_DARKGREY
+  );
+
+  const bool intraday =
+    touchMarketPeriod == TouchMarketPeriod::Today;
+
+  const MarketGraphPoint *points = intraday
+    ? marketSnapshot.today
+    : marketSnapshot.thirtyDay;
+
+  const size_t pointCount = intraday
+    ? marketSnapshot.todayCount
+    : marketSnapshot.thirtyDayCount;
+
+  const int16_t currentValue = intraday
+    ? marketSnapshot.currentMoodBasisPoints
+    : marketSnapshot.thirtyDayMoodBasisPoints;
+
+  lcd.setFont(&fonts::Font0);
+  lcd.setTextDatum(textdatum_t::top_left);
+  lcd.setTextColor(TFT_LIGHTGREY, 0x1082);
+  lcd.drawString(
+    intraday
+      ? "INTRADAY COMPOSITE"
+      : "30-SESSION COMPOSITE",
+    GRAPH_X + 7,
+    GRAPH_Y + 4
+  );
+
+  lcd.setTextDatum(textdatum_t::top_right);
+  lcd.setTextColor(
+    marketMoodColor(marketMoodLevelForBasisPoints(currentValue)),
+    0x1082
+  );
+  lcd.drawString(
+    marketPercentText(currentValue),
+    GRAPH_X + GRAPH_W - 7,
+    GRAPH_Y + 4
+  );
+
+  if (pointCount < 2) {
+    lcd.setTextDatum(textdatum_t::middle_center);
+    lcd.setTextColor(TFT_CYAN, 0x1082);
+    lcd.drawString(
+      marketRefreshIsPending()
+        ? "RETRIEVING MARKET DATA"
+        : "NO CACHED GRAPH YET",
+      GRAPH_X + GRAPH_W / 2,
+      GRAPH_Y + GRAPH_H / 2
+    );
+    return;
+  }
+
+  int16_t minimum = 0;
+  int16_t maximum = 0;
+
+  for (size_t index = 0; index < pointCount; ++index) {
+    minimum = min(minimum, points[index].moodBasisPoints);
+    maximum = max(maximum, points[index].moodBasisPoints);
+  }
+
+  if (maximum - minimum < 40) {
+    const int16_t middle = static_cast<int16_t>((maximum + minimum) / 2);
+    minimum = middle - 20;
+    maximum = middle + 20;
+  }
+
+  // Reserve the left edge for compact percentage labels and the bottom edge
+  // for three timeline labels. Ticks are used instead of a full grid so the
+  // small 320x240 display remains uncluttered.
+  const int plotLeft = GRAPH_X + 39;
+  const int plotRight = GRAPH_X + GRAPH_W - 7;
+  const int plotTop = GRAPH_Y + 18;
+  const int plotBottom = GRAPH_Y + GRAPH_H - 19;
+  const int plotHeight = plotBottom - plotTop;
+  const int valueRange = maximum - minimum;
+  const uint16_t axisColor = 0x5AEB;
+
+  lcd.drawFastVLine(
+    plotLeft,
+    plotTop,
+    plotBottom - plotTop + 1,
+    axisColor
+  );
+  lcd.drawFastHLine(
+    plotLeft,
+    plotBottom,
+    plotRight - plotLeft + 1,
+    axisColor
+  );
+
+  auto valueToY = [&](int16_t value) {
+    return valueRange <= 0
+      ? (plotTop + plotBottom) / 2
+      : plotBottom - static_cast<int>(
+          (value - minimum) * plotHeight / valueRange
+        );
+  };
+
+  auto drawValueTick = [&](int y, int16_t value) {
+    lcd.drawFastHLine(plotLeft - 3, y, 7, axisColor);
+    lcd.setTextDatum(textdatum_t::middle_right);
+    lcd.setTextColor(TFT_LIGHTGREY, 0x1082);
+    lcd.drawString(
+      touchMarketScaleLabel(value),
+      plotLeft - 5,
+      y
+    );
+  };
+
+  drawValueTick(plotTop, maximum);
+  drawValueTick(plotBottom, minimum);
+
+  if (minimum < 0 && maximum > 0 && valueRange > 0) {
+    const int zeroY = valueToY(0);
+
+    if (zeroY - plotTop >= 8 && plotBottom - zeroY >= 8) {
+      drawValueTick(zeroY, 0);
+    }
+  }
+
+  const size_t middleIndex = pointCount / 2;
+  const int tickXs[3] = {
+    plotLeft,
+    (plotLeft + plotRight) / 2,
+    plotRight
+  };
+  const size_t labelIndexes[3] = {
+    0,
+    middleIndex,
+    pointCount - 1
+  };
+
+  for (size_t tick = 0; tick < 3; ++tick) {
+    lcd.drawFastVLine(tickXs[tick], plotBottom - 2, 6, axisColor);
+    lcd.setTextColor(TFT_LIGHTGREY, 0x1082);
+
+    if (tick == 0) {
+      lcd.setTextDatum(textdatum_t::top_left);
+    } else if (tick == 2) {
+      lcd.setTextDatum(textdatum_t::top_right);
+    } else {
+      lcd.setTextDatum(textdatum_t::top_center);
+    }
+
+    lcd.drawString(
+      touchMarketHorizontalLabel(
+        points[labelIndexes[tick]].timestamp,
+        intraday
+      ),
+      tickXs[tick],
+      plotBottom + 5
+    );
+  }
+
+  int previousX = plotLeft;
+  int previousY = plotBottom;
+  const uint16_t lineColor =
+    marketMoodColor(marketMoodLevelForBasisPoints(currentValue));
+
+  for (size_t index = 0; index < pointCount; ++index) {
+    const int x = pointCount <= 1
+      ? plotLeft
+      : plotLeft + static_cast<int>(
+          index * (plotRight - plotLeft) / (pointCount - 1)
+        );
+
+    const int y = valueToY(points[index].moodBasisPoints);
+
+    if (index > 0) {
+      lcd.drawLine(previousX, previousY, x, y, lineColor);
+    }
+
+    previousX = x;
+    previousY = y;
+  }
+
+  lcd.fillCircle(previousX, previousY, 2, TFT_WHITE);
+}
+
+void drawTouchUiMarket() {
+  drawTouchUiHeader("MARKET MOOD");
+  drawTouchUiMarketGraph();
+
+  drawTouchUiButton(
+    MARKET_TODAY_BUTTON,
+    touchMarketPeriod == TouchMarketPeriod::Today
+  );
+
+  drawTouchUiButton(
+    MARKET_THIRTY_DAY_BUTTON,
+    touchMarketPeriod == TouchMarketPeriod::ThirtyDays
+  );
+
+  lcd.setFont(&fonts::Font0);
+  lcd.setTextDatum(textdatum_t::middle_center);
+
+  if (marketDataAvailable()) {
+    for (size_t index = 0; index < 3; ++index) {
+      const int x = 54 + static_cast<int>(index) * 106;
+      const MarketQuote &quote = marketSnapshot.quotes[index];
+      String text = quote.symbol;
+      text += ' ';
+
+      if (quote.changePercent > 0.0001f) {
+        text += '+';
+      }
+
+      text += String(quote.changePercent, 2);
+      text += '%';
+
+      lcd.setTextColor(
+        quote.changePercent >= 0.0f ? TFT_GREEN : TFT_RED,
+        TFT_BLACK
+      );
+      lcd.drawString(text, x, 166);
+    }
+
+    const MarketMoodLevel mood = currentMarketMoodLevel();
+    drawMarketMoodFace(28, 186, 10, mood, TFT_BLACK);
+
+    lcd.setTextDatum(textdatum_t::middle_left);
+    lcd.setTextColor(marketMoodColor(mood), TFT_BLACK);
+    lcd.drawString(
+      String(marketMoodLabel(mood)) +
+        "  " +
+        (marketSnapshot.marketOpen ? "MARKET OPEN" : "MARKET CLOSED"),
+      44,
+      183
+    );
+
+    lcd.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    lcd.drawString(
+      String("Updated ") + marketAgeText() + "  |  delayed / best effort",
+      44,
+      197
+    );
+  } else {
+    lcd.setTextDatum(textdatum_t::middle_center);
+    lcd.setTextColor(TFT_CYAN, TFT_BLACK);
+    lcd.drawString(
+      marketRefreshIsPending()
+        ? "Market refresh requested"
+        : "Tap REFRESH to retrieve Market Mood",
+      SCREEN_W / 2,
+      176
+    );
+
+    if (marketLastError().length()) {
+      lcd.setTextColor(TFT_RED, TFT_BLACK);
+      String error = marketLastError();
+
+      if (error.length() > 46) {
+        error.remove(43);
+        error += "...";
+      }
+
+      lcd.drawString(error, SCREEN_W / 2, 194);
+    }
+  }
+
+  drawTouchUiButton(MARKET_REFRESH_BUTTON);
+  drawTouchUiButton(MARKET_HOME_BUTTON);
+}
+
 const char *touchUiPageTitle(
   TouchUiPage page
 ) {
@@ -2332,6 +2752,9 @@ const char *touchUiPageTitle(
 
     case TouchUiPage::WeatherRadar:
       return "REGIONAL RADAR";
+
+    case TouchUiPage::Market:
+      return "MARKET MOOD";
 
     case TouchUiPage::TimeDisplay:
       return "TIME / DISPLAY";
@@ -4745,6 +5168,10 @@ void drawActiveTouchUiPage() {
       drawTouchUiWeatherRadar();
       break;
 
+    case TouchUiPage::Market:
+      drawTouchUiMarket();
+      break;
+
     case TouchUiPage::MainMenu:
       drawTouchUiMainMenu();
       break;
@@ -4941,6 +5368,16 @@ void handleTouchUiButton(
       }
       break;
 
+    case TouchUiButtonId::OpenMarket:
+      showTouchUiPage(TouchUiPage::Market);
+
+      if (marketDataIsStale()) {
+        requestMarketRefresh(
+          marketSnapshot.thirtyDayCount == 0
+        );
+      }
+      break;
+
     case TouchUiButtonId::WeatherRadar:
       showTouchUiPage(TouchUiPage::WeatherRadar);
 
@@ -4961,6 +5398,21 @@ void handleTouchUiButton(
     case TouchUiButtonId::WeatherRadarRefresh:
       requestWeatherRadarRefresh();
       drawTouchUiWeatherRadar();
+      break;
+
+    case TouchUiButtonId::MarketToday:
+      touchMarketPeriod = TouchMarketPeriod::Today;
+      drawTouchUiMarket();
+      break;
+
+    case TouchUiButtonId::MarketThirtyDays:
+      touchMarketPeriod = TouchMarketPeriod::ThirtyDays;
+      drawTouchUiMarket();
+      break;
+
+    case TouchUiButtonId::MarketRefresh:
+      requestMarketRefresh(true);
+      drawTouchUiMarket();
       break;
 
     case TouchUiButtonId::TimeDisplay:
@@ -5819,6 +6271,8 @@ void serviceTouchUi() {
     activeTouchUiPage !=
       TouchUiPage::WeatherRadar &&
     activeTouchUiPage !=
+      TouchUiPage::Market &&
+    activeTouchUiPage !=
       TouchUiPage::DisplayTest &&
     millis() -
       touchUiLastActivityAt >=
@@ -5917,6 +6371,18 @@ void touchUiHandleWeatherUpdated() {
     drawTouchUiWeather();
   } else if (activeTouchUiPage == TouchUiPage::WeatherRadar) {
     drawTouchUiWeatherRadar();
+  }
+}
+
+
+bool touchUiMarketPageIsOpen() {
+  return activeTouchUiPage == TouchUiPage::Market;
+}
+
+
+void touchUiHandleMarketUpdated() {
+  if (activeTouchUiPage == TouchUiPage::Market) {
+    drawTouchUiMarket();
   }
 }
 

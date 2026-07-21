@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.2-alpha2";
+  "5.3-alpha4";
 
 // ============================================================
 // BOARD SELECTION
@@ -19,6 +19,7 @@ static constexpr const char *FIRMWARE_VERSION =
 #include "board_profiles.h"
 
 #include <Arduino.h>
+#include <new>
 #include <WiFi.h>
 #include <time.h>
 #include <LovyanGFX.hpp>
@@ -223,6 +224,10 @@ static constexpr const char *WEATHER_RADAR_REFRESH_PATH =
 static constexpr const char *WEATHER_RADAR_IMAGE_PATH =
   "/weather/radar.png";
 
+// Market Mood pages.
+static constexpr const char *MARKET_PATH = "/market";
+static constexpr const char *MARKET_REFRESH_PATH = "/market/refresh";
+
 // ============================================================
 // PREFERENCES / NONVOLATILE STORAGE
 // ============================================================
@@ -298,6 +303,12 @@ static constexpr const char *PREF_KEY_WEATHER_ENABLED =
 
 static constexpr const char *PREF_KEY_WEATHER_FAHRENHEIT =
   "weatherF";
+
+static constexpr const char *PREF_KEY_MARKET_ENABLED =
+  "marketOn";
+
+static constexpr const char *PREF_KEY_MARKET_CONFIGURED =
+  "marketSet";
 
 static constexpr const char *PREF_KEY_SELECTED_DAY_MAP =
   "dayMap";
@@ -432,6 +443,41 @@ static constexpr int WEATHER_BUTTON_H = 30;
 
 
 // ============================================================
+// MARKET MOOD
+// ============================================================
+
+// Yahoo Finance chart endpoints are no-key, unofficial, and best effort.
+// Keep both hosts configurable so the provider can be replaced later.
+static constexpr const char *MARKET_DATA_PRIMARY_ENDPOINT =
+  "https://query1.finance.yahoo.com/v8/finance/chart";
+static constexpr const char *MARKET_DATA_FALLBACK_ENDPOINT =
+  "https://query2.finance.yahoo.com/v8/finance/chart";
+
+static constexpr const char *MARKET_DIRECTORY = "/market";
+static constexpr const char *MARKET_CACHE_FILE = "/market/market.bin";
+static constexpr const char *MARKET_CACHE_TEMP_FILE = "/market/market.tmp";
+
+static constexpr size_t MARKET_TODAY_MAX_POINTS = 48;
+static constexpr size_t MARKET_30_DAY_MAX_POINTS = 30;
+static constexpr unsigned long MARKET_REFRESH_MS = 10UL * 60UL * 1000UL;
+static constexpr unsigned long MARKET_DAILY_REFRESH_MS = 6UL * 60UL * 60UL * 1000UL;
+static constexpr unsigned long MARKET_RETRY_MS = 2UL * 60UL * 1000UL;
+static constexpr unsigned long MARKET_INITIAL_FETCH_DELAY_MS = 12000UL;
+static constexpr uint16_t MARKET_HTTP_TIMEOUT_MS = 20000;
+
+// Market Mood is available out of the box. Once the user explicitly
+// enables or disables it, that preference is retained.
+static constexpr bool MARKET_ENABLED_DEFAULT = true;
+
+// Exact right-side mirror of the weather control.
+static constexpr int MARKET_BUTTON_W = WEATHER_BUTTON_W;
+static constexpr int MARKET_BUTTON_H = WEATHER_BUTTON_H;
+static constexpr int MARKET_BUTTON_X =
+  SCREEN_W - WEATHER_BUTTON_X - WEATHER_BUTTON_W;
+static constexpr int MARKET_BUTTON_Y = WEATHER_BUTTON_Y;
+
+
+// ============================================================
 // STARTUP SPLASH
 // ============================================================
 
@@ -524,6 +570,46 @@ struct LocationGridSettings {
 struct WeatherSettings {
   bool enabled = true;
   bool useFahrenheit = true;
+};
+
+struct MarketSettings {
+  bool enabled = MARKET_ENABLED_DEFAULT;
+};
+
+enum class MarketMoodLevel : uint8_t {
+  Unknown,
+  VeryUpbeat,
+  Upbeat,
+  Neutral,
+  Uneasy,
+  Distressed
+};
+
+struct MarketQuote {
+  bool valid = false;
+  char symbol[8] = "";
+  float price = 0.0f;
+  float changePercent = 0.0f;
+  time_t timestamp = 0;
+};
+
+struct MarketGraphPoint {
+  time_t timestamp = 0;
+  int16_t moodBasisPoints = 0;
+};
+
+struct MarketSnapshot {
+  bool valid = false;
+  bool marketOpen = false;
+  time_t fetchedAt = 0;
+  time_t dailyFetchedAt = 0;
+  int16_t currentMoodBasisPoints = 0;
+  int16_t thirtyDayMoodBasisPoints = 0;
+  MarketQuote quotes[3];
+  uint8_t todayCount = 0;
+  uint8_t thirtyDayCount = 0;
+  MarketGraphPoint today[MARKET_TODAY_MAX_POINTS];
+  MarketGraphPoint thirtyDay[MARKET_30_DAY_MAX_POINTS];
 };
 
 struct WeatherForecastDay {
@@ -738,6 +824,8 @@ extern TimeSettings timeSettings;
 extern WeatherSettings weatherSettings;
 extern WeatherForecast weatherForecast;
 extern WeatherRadarInfo weatherRadarInfo;
+extern MarketSettings marketSettings;
+extern MarketSnapshot marketSnapshot;
 extern IssPosition issPosition;
 extern OrbitTrackPoint issTrack[ISS_TRACK_POINT_COUNT];
 extern bool issTrackValid;
@@ -802,6 +890,7 @@ String formatHomeLocation();
 void renderCoordinateGridOverlay();
 void renderHomeLocationOverlay();
 void renderWeatherButtonOverlay();
+void renderMarketButtonOverlay();
 
 // Internal math/map helpers
 static double norm180(double x);
@@ -966,6 +1055,8 @@ bool loadLocationGridSettings();
 bool saveLocationGridSettings();
 bool loadWeatherSettings();
 bool saveWeatherSettings();
+bool loadMarketSettings();
+bool saveMarketSettings();
 
 // Saved-location weather and radar.
 bool coordinatesRepresentHomeLocation(
@@ -1002,6 +1093,30 @@ void drawWeatherIcon(
   uint16_t backgroundColor
 );
 bool drawWeatherRadarImage();
+
+
+// Market Mood.
+bool marketFeatureAvailable();
+bool marketDataAvailable();
+bool marketDataIsStale();
+void initializeMarketService();
+void serviceMarket();
+void requestMarketRefresh(bool includeDaily = false);
+bool marketRefreshIsPending();
+const String &marketLastError();
+MarketMoodLevel marketMoodLevelForBasisPoints(int16_t basisPoints);
+MarketMoodLevel currentMarketMoodLevel();
+const char *marketMoodLabel(MarketMoodLevel level);
+uint16_t marketMoodColor(MarketMoodLevel level);
+String marketPercentText(int16_t basisPoints);
+String marketAgeText();
+void drawMarketMoodFace(
+  int centerX,
+  int centerY,
+  int radius,
+  MarketMoodLevel level,
+  uint16_t backgroundColor
+);
 
 // Shared settings controller used by browser and touchscreen interfaces.
 bool saveUtcOffsetPreference(int offsetMinutes);
@@ -1064,5 +1179,7 @@ void touchUiHandleDisplayRotationChanged();
 bool touchUiWeatherPageIsOpen();
 bool touchUiWeatherRadarIsOpen();
 void touchUiHandleWeatherUpdated();
+bool touchUiMarketPageIsOpen();
+void touchUiHandleMarketUpdated();
 void showTouchUiDisplayTest();
 
