@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.2-alpha1";
+  "5.2-alpha2";
 
 // ============================================================
 // BOARD SELECTION
@@ -14,7 +14,7 @@ static constexpr const char *FIRMWARE_VERSION =
 #define BOARD_E32R28T           2
 #define BOARD_AITRIP_ESP32_2432S028R  3
 
-#define WORLDCLOCK_BOARD BOARD_E32R28T
+#define WORLDCLOCK_BOARD BOARD_AITRIP_ESP32_2432S028R
 
 #include "board_profiles.h"
 

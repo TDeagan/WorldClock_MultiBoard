@@ -141,7 +141,9 @@ No transparency
 
 The decoder specifically rejects interlaced PNGs and images whose dimensions are not exactly 320×240.
 
-RGBA may decode, but I would flatten transparency onto the intended background first. A conventional 24-bit RGB PNG is the safest choice.
+RGBA is not a supported source-map format for this project, even when every alpha value is fully opaque. Flatten the image or remove the alpha channel before export so the PNG is encoded as conventional 24-bit RGB.
+
+For GIMP exports, disable EXIF, XMP, thumbnails, and other metadata when possible. These are unnecessary for the clock and only increase the file size and decoder workload.
 
 ----------------------
 Visual-design considerations

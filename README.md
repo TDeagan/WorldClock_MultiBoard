@@ -1,10 +1,10 @@
-# ESP32 World Clock v5.2-alpha1
+# ESP32 World Clock v5.2-alpha2
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 TFT screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, and saved-location weather.
 
 The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts and a fixed-scale regional precipitation-radar image are cached on the card for immediate and offline display.
 
-Version 5.2-alpha1 adds per-board display tuning for the three physically tested panels. Backlight brightness is driven by PWM, each board profile supplies independent daylight-map and night-map gamma defaults, and a display-test screen provides grayscale, near-black, near-white, and RGB gradients for comparison. Gamma correction is applied while RGB565 map caches are generated, so the map can be tuned without changing controller registers or source PNG files. Existing Wi-Fi, touch, weather, map-selection, and other World Clock settings are preserved.
+Version 5.2-alpha2 retains the per-board display-tuning features and updates the touchscreen diagnostics interface. The page is now titled **Diagnostics**, and the pressure controls use explicit two-line **TOUCH / PRESSURE -** and **TOUCH / PRESSURE +** labels. It also clarifies that source maps must be 320 × 240, non-interlaced, 8-bit RGB PNG files without an alpha channel. Existing Wi-Fi, touch, weather, map-selection, and other World Clock settings are preserved.
 
 ## Section 1: Using an Installed World Clock
 
@@ -212,7 +212,10 @@ A daylight map must be:
 - Full globe from the North Pole to the South Pole
 - 8-bit-per-channel RGB PNG
 - Non-interlaced
-- Without transparency, borders, labels, or a pre-rendered day/night boundary
+- No alpha/transparency channel
+- Without margins, captions, unused padding, or a pre-rendered day/night boundary
+
+In GIMP, flatten the image or remove the alpha channel before exporting. Disable EXIF, XMP, thumbnail, and other metadata when possible. A map can look fully opaque while still being encoded as RGBA; that is not a supported source-map format.
 
 Every daylight map must align exactly with the shared `/earth_night.png`. See `Map requirements.txt` for the complete specification.
 
@@ -355,7 +358,7 @@ Install:
 3. **LovyanGFX** through Arduino Library Manager
 4. **PNGdec** by Larry Bank/BitBank through Arduino Library Manager
 
-The v5.2-alpha1 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
+The v5.2-alpha2 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
 
 The following headers are supplied by the ESP32 Arduino core and should not normally be installed separately:
 
@@ -430,7 +433,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.2-alpha1";
+  "5.2-alpha2";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -630,7 +633,7 @@ The ESP32-2432S028 name is used for several production revisions. This profile s
 
 **Weather compilation or runtime problems**
 
-- No ArduinoJson installation is required; v5.2-alpha1 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
+- No ArduinoJson installation is required; v5.2-alpha2 uses a small built-in parser and the HTTP/TLS classes supplied by the ESP32 Arduino core.
 - Confirm that `HTTPClient.h` and `WiFiClientSecure.h` are available from the selected ESP32 board package.
 - Confirm that the partition scheme still provides enough application space after adding `67_Weather.ino`.
 - Persistent weather, radar, and basemap caching requires a writable microSD card; the firmware creates `/weather` automatically.

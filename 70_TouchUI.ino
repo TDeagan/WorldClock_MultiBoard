@@ -1,5 +1,5 @@
 // ============================================================
-// WorldClock Version 5.2-alpha1 touchscreen user interface
+// WorldClock Version 5.2-alpha2 touchscreen user interface
 // ============================================================
 //
 // Version 5.2 adds display brightness and map-gamma tuning while retaining
@@ -897,14 +897,14 @@ static constexpr TouchUiButton BUTTON_DISPLAY_TEST = {
 static constexpr TouchUiButton BUTTON_PRESSURE_DOWN = {
   TouchUiButtonId::PressureDown,
   8, 195, 70, 32,
-  "PRESS -",
+  "TOUCH\nPRESSURE -",
   TFT_DARKGREY
 };
 
 static constexpr TouchUiButton BUTTON_PRESSURE_UP = {
   TouchUiButtonId::PressureUp,
   86, 195, 70, 32,
-  "PRESS +",
+  "TOUCH\nPRESSURE +",
   TFT_DARKGREY
 };
 
@@ -1909,11 +1909,43 @@ void drawTouchUiButton(
       textColor
     );
   } else {
-    lcd.drawString(
-      touchUiButtonDisplayLabel(button),
-      button.x + button.w / 2,
-      button.y + button.h / 2
-    );
+    const String label =
+      touchUiButtonDisplayLabel(button);
+
+    const int lineBreak =
+      label.indexOf('\n');
+
+    if (lineBreak >= 0) {
+      const String firstLine =
+        label.substring(0, lineBreak);
+
+      const String secondLine =
+        label.substring(lineBreak + 1);
+
+      const int centerX =
+        button.x + button.w / 2;
+
+      const int centerY =
+        button.y + button.h / 2;
+
+      lcd.drawString(
+        firstLine,
+        centerX,
+        centerY - 5
+      );
+
+      lcd.drawString(
+        secondLine,
+        centerX,
+        centerY + 5
+      );
+    } else {
+      lcd.drawString(
+        label,
+        button.x + button.w / 2,
+        button.y + button.h / 2
+      );
+    }
   }
 }
 
@@ -4489,7 +4521,7 @@ void drawTouchUiDiagnosticsData() {
 
 void drawTouchUiDiagnostics() {
   drawTouchUiHeader(
-    "TOUCH DIAGNOSTICS"
+    "DIAGNOSTICS"
   );
 
   drawTouchUiDiagnosticsData();

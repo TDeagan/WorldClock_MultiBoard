@@ -1,6 +1,6 @@
 #include "config.h"
 
-// World Clock v5.2-alpha1 — per-board display tuning and calibration patterns.
+// World Clock v5.2-alpha2 — per-board display tuning and calibration patterns.
 // Select the target board with WORLDCLOCK_BOARD in config.h.
 
 void setup() {
