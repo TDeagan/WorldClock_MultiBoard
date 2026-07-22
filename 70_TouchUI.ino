@@ -1,9 +1,9 @@
 // ============================================================
-// WorldClock Version 5.3-alpha4 touchscreen user interface
+// WorldClock Version 5.4-alpha5 touchscreen user interface
 // ============================================================
 //
-// Version 5.3 adds a persistent Market Mood page and lower-right mood control
-// while retaining calibration, Wi-Fi, weather, radar, map, and display tuning.
+// Version 5.4 adds cached RainViewer radar with explicit LATEST/LOOP modes
+// while retaining Market Mood, weather, maps, and display diagnostics.
 // ============================================================
 
 namespace {
@@ -35,6 +35,8 @@ enum class TouchUiButtonId : uint8_t {
   WeatherForecast,
   WeatherRefresh,
   WeatherRadarRefresh,
+  WeatherRadarLatest,
+  WeatherRadarLoop,
   MarketToday,
   MarketThirtyDays,
   MarketRefresh,
@@ -207,21 +209,35 @@ static constexpr TouchUiButton WEATHER_HOME_BUTTON = {
 
 static constexpr TouchUiButton RADAR_FORECAST_BUTTON = {
   TouchUiButtonId::WeatherForecast,
-  8, 207, 96, 27,
-  "FORECAST",
+  4, 207, 46, 27,
+  "FCST",
   TFT_NAVY
 };
 
 static constexpr TouchUiButton RADAR_REFRESH_BUTTON = {
   TouchUiButtonId::WeatherRadarRefresh,
-  112, 207, 96, 27,
-  "REFRESH",
+  54, 207, 46, 27,
+  "REFR",
   TFT_PURPLE
+};
+
+static constexpr TouchUiButton RADAR_LATEST_BUTTON = {
+  TouchUiButtonId::WeatherRadarLatest,
+  104, 207, 68, 27,
+  "LATEST",
+  TFT_DARKGREEN
+};
+
+static constexpr TouchUiButton RADAR_LOOP_BUTTON = {
+  TouchUiButtonId::WeatherRadarLoop,
+  176, 207, 68, 27,
+  "LOOP",
+  TFT_MAROON
 };
 
 static constexpr TouchUiButton RADAR_HOME_BUTTON = {
   TouchUiButtonId::Home,
-  216, 207, 96, 27,
+  248, 207, 68, 27,
   "CLOCK",
   TFT_DARKGREEN
 };
@@ -1009,6 +1025,8 @@ static constexpr const TouchUiButton *WEATHER_BUTTONS[] = {
 static constexpr const TouchUiButton *WEATHER_RADAR_BUTTONS[] = {
   &RADAR_FORECAST_BUTTON,
   &RADAR_REFRESH_BUTTON,
+  &RADAR_LATEST_BUTTON,
+  &RADAR_LOOP_BUTTON,
   &RADAR_HOME_BUTTON
 };
 
@@ -1144,6 +1162,7 @@ TouchMarketPeriod touchMarketPeriod =
 bool touchUiInitialized = false;
 unsigned long touchUiLastActivityAt = 0;
 unsigned long touchUiLastDiagnosticsDrawAt = 0;
+unsigned long touchUiLastRadarAnimationAt = 0;
 
 TouchUiButtonId activeTouchUiButton =
   TouchUiButtonId::None;
@@ -1234,6 +1253,7 @@ void drawTouchUiRow(int y, const char *label);
 void drawTouchUiMainMenu();
 void drawTouchUiWeather();
 void drawTouchUiWeatherRadar();
+void drawTouchUiWeatherRadarFrame(bool drawControls);
 void drawTouchUiMarket();
 const char *touchUiPageTitle(TouchUiPage page);
 void drawTouchUiTimeDisplay();
@@ -2368,23 +2388,147 @@ void drawTouchUiWeather() {
   }
 }
 
-void drawTouchUiWeatherRadar() {
-  const String title = touchUiWeatherHeader("RADAR");
-  drawTouchUiHeader(title.c_str());
+String touchUiRadarFrameTimeLabel(time_t timestamp) {
+  if (timestamp <= 0) {
+    return "--";
+  }
 
+  tm localTm {};
+  localtime_r(&timestamp, &localTm);
+  char label[20];
+
+  if (timeSettings.use24Hour) {
+    strftime(label, sizeof(label), "%H:%M", &localTm);
+  } else {
+    strftime(label, sizeof(label), "%I:%M %p", &localTm);
+
+    if (label[0] == '0') {
+      memmove(label, label + 1, strlen(label));
+    }
+  }
+
+  return String(label);
+}
+
+String touchUiRadarMarginTimeLabel(time_t timestamp) {
+  if (timestamp <= 0) {
+    return "--:--";
+  }
+
+  tm localTm {};
+  localtime_r(&timestamp, &localTm);
+  char label[8];
+
+  if (timeSettings.use24Hour) {
+    strftime(label, sizeof(label), "%H:%M", &localTm);
+  } else {
+    strftime(label, sizeof(label), "%I:%M", &localTm);
+
+    if (label[0] == '0') {
+      memmove(label, label + 1, strlen(label));
+    }
+  }
+
+  return String(label);
+}
+
+void drawTouchUiRadarFrameTimeline() {
+  // The radar image begins at x=32, leaving a narrow dedicated margin. Clear
+  // it on every redraw so switching back to LATEST removes the LOOP timeline.
+  const int marginWidth = WEATHER_RADAR_IMAGE_X - 1;
+  lcd.fillRect(
+    0,
+    WEATHER_RADAR_IMAGE_Y,
+    marginWidth,
+    WEATHER_RADAR_IMAGE_H,
+    TFT_BLACK
+  );
+
+  if (!weatherRadarLoopModeIsSelected()) {
+    return;
+  }
+
+  const size_t frameCount = weatherRadarFrameCount();
+
+  if (frameCount == 0) {
+    return;
+  }
+
+  const size_t selectedIndex = weatherRadarSelectedFrameIndex();
+  lcd.setFont(&fonts::Font0);
+  lcd.setTextDatum(textdatum_t::middle_right);
+
+  for (size_t index = 0; index < frameCount; ++index) {
+    const int y = WEATHER_RADAR_IMAGE_Y +
+      static_cast<int>(
+        (
+          index * static_cast<size_t>(WEATHER_RADAR_IMAGE_H) +
+          static_cast<size_t>(WEATHER_RADAR_IMAGE_H / 2)
+        ) / frameCount
+      );
+
+    lcd.setTextColor(
+      index == selectedIndex ? TFT_YELLOW : TFT_DARKGREY,
+      TFT_BLACK
+    );
+    lcd.drawString(
+      touchUiRadarMarginTimeLabel(weatherRadarFrameTime(index)),
+      marginWidth - 1,
+      y
+    );
+  }
+}
+
+void drawTouchUiWeatherRadarFrame(bool drawControls) {
   const bool radarDrawn = drawWeatherRadarImage();
+  drawTouchUiRadarFrameTimeline();
 
+  lcd.fillRect(0, 191, SCREEN_W, 16, TFT_BLACK);
   lcd.setFont(&fonts::Font0);
   lcd.setTextDatum(textdatum_t::middle_center);
   lcd.setTextColor(TFT_WHITE, TFT_BLACK);
 
-  String status = radarDrawn
-    ? String("Frame ") + weatherRadarAgeText()
-    : weatherRadarRefreshIsPending()
-        ? "Radar refresh requested"
-        : "No cached radar image";
+  String status;
 
-  if (!radarDrawn && weatherRadarLastError().length()) {
+  if (radarDrawn) {
+    if (weatherRadarLatestModeIsSelected()) {
+      status = String("LATEST  ") +
+        touchUiRadarFrameTimeLabel(weatherRadarSelectedFrameTime());
+
+      if (weatherRadarRefreshInProgress()) {
+        status += String("  UPDATING ") +
+          String(weatherRadarRefreshCompletedCount()) + "/" +
+          String(weatherRadarRefreshTargetCount());
+      }
+    } else {
+      status = String("LOOP  ") +
+        String(weatherRadarSelectedFrameIndex() + 1) + "/" +
+        String(weatherRadarFrameCount()) + "  " +
+        touchUiRadarFrameTimeLabel(weatherRadarSelectedFrameTime());
+
+      if (
+        weatherRadarFrameCount() > 1 &&
+        !weatherRadarSmoothPlaybackAvailable()
+      ) {
+        status += "  PAUSED STATIC";
+      }
+    }
+  } else if (weatherRadarRefreshInProgress()) {
+    status = String("Loading radar ") +
+      String(weatherRadarRefreshCompletedCount()) + "/" +
+      String(weatherRadarRefreshTargetCount());
+  } else if (weatherRadarRefreshIsPending()) {
+    status = "Radar refresh requested";
+  } else {
+    status = "No cached radar image";
+  }
+
+  if (
+    !radarDrawn &&
+    !weatherRadarRefreshInProgress() &&
+    !weatherRadarRefreshIsPending() &&
+    weatherRadarLastError().length()
+  ) {
     status = weatherRadarLastError();
   }
 
@@ -2393,9 +2537,28 @@ void drawTouchUiWeatherRadar() {
   lcd.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
   lcd.drawString("(c) OpenStreetMap contributors | RainViewer", SCREEN_W / 2, 202);
 
-  for (const TouchUiButton *button : WEATHER_RADAR_BUTTONS) {
-    drawTouchUiButton(*button);
+  if (drawControls) {
+    for (const TouchUiButton *button : WEATHER_RADAR_BUTTONS) {
+      const bool selectedMode =
+        (
+          button->id == TouchUiButtonId::WeatherRadarLatest &&
+          weatherRadarLatestModeIsSelected()
+        ) ||
+        (
+          button->id == TouchUiButtonId::WeatherRadarLoop &&
+          weatherRadarLoopModeIsSelected()
+        );
+
+      drawTouchUiButton(*button, selectedMode);
+    }
   }
+}
+
+void drawTouchUiWeatherRadar() {
+  const String title = touchUiWeatherHeader("RADAR");
+  drawTouchUiHeader(title.c_str());
+  drawTouchUiWeatherRadarFrame(true);
+  touchUiLastRadarAnimationAt = millis();
 }
 
 
@@ -5227,6 +5390,10 @@ void openTouchUiMainMenu() {
     return;
   }
 
+  if (activeTouchUiPage == TouchUiPage::WeatherRadar) {
+    releaseWeatherRadarDisplayBuffer();
+  }
+
   activeTouchUiPage =
     TouchUiPage::MainMenu;
 
@@ -5239,6 +5406,13 @@ void openTouchUiMainMenu() {
 void showTouchUiPage(
   TouchUiPage page
 ) {
+  if (
+    activeTouchUiPage == TouchUiPage::WeatherRadar &&
+    page != TouchUiPage::WeatherRadar
+  ) {
+    releaseWeatherRadarDisplayBuffer();
+  }
+
   prepareTouchUiDraft(
     page
   );
@@ -5314,6 +5488,14 @@ void applyTouchUiLocation() {
     formatHomeLocation().c_str()
   );
 
+  if (saved && sdReady) {
+    initializeWeatherService();
+
+    if (weatherFeatureAvailable()) {
+      requestWeatherForecastRefresh();
+    }
+  }
+
   closeTouchUi(true);
 }
 
@@ -5379,6 +5561,7 @@ void handleTouchUiButton(
       break;
 
     case TouchUiButtonId::WeatherRadar:
+      resetWeatherRadarDisplayMode();
       showTouchUiPage(TouchUiPage::WeatherRadar);
 
       if (weatherRadarIsStale()) {
@@ -5398,6 +5581,18 @@ void handleTouchUiButton(
     case TouchUiButtonId::WeatherRadarRefresh:
       requestWeatherRadarRefresh();
       drawTouchUiWeatherRadar();
+      break;
+
+    case TouchUiButtonId::WeatherRadarLatest:
+      selectWeatherRadarLatestMode();
+      drawTouchUiWeatherRadarFrame(true);
+      touchUiLastRadarAnimationAt = millis();
+      break;
+
+    case TouchUiButtonId::WeatherRadarLoop:
+      selectWeatherRadarLoopMode();
+      drawTouchUiWeatherRadarFrame(true);
+      touchUiLastRadarAnimationAt = millis();
       break;
 
     case TouchUiButtonId::MarketToday:
@@ -6263,6 +6458,25 @@ void serviceTouchUi() {
     drawTouchUiDiagnosticsData();
   }
 
+  const unsigned long radarAnimationDelay =
+    weatherRadarFrameCount() > 0 &&
+    weatherRadarSelectedFrameIndex() + 1 >= weatherRadarFrameCount()
+      ? WEATHER_RADAR_ANIMATION_LATEST_HOLD_MS
+      : WEATHER_RADAR_ANIMATION_FRAME_MS;
+
+  if (
+    activeTouchUiPage == TouchUiPage::WeatherRadar &&
+    activeTouchUiButton == TouchUiButtonId::None &&
+    weatherRadarAnimationIsPlaying() &&
+    !weatherRadarRefreshInProgress() &&
+    millis() - touchUiLastRadarAnimationAt >=
+      radarAnimationDelay
+  ) {
+    selectNextWeatherRadarFrame();
+    drawTouchUiWeatherRadarFrame(false);
+    touchUiLastRadarAnimationAt = millis();
+  }
+
   // Keep the live radar display open until the user explicitly leaves it.
   // Other touchscreen pages still return to the clock after inactivity.
   if (
@@ -6293,6 +6507,10 @@ bool touchUiIsOpen() {
 void closeTouchUi(
   bool redrawClock
 ) {
+  if (activeTouchUiPage == TouchUiPage::WeatherRadar) {
+    releaseWeatherRadarDisplayBuffer();
+  }
+
   activeTouchUiPage =
     TouchUiPage::Clock;
 
@@ -6334,6 +6552,10 @@ void closeTouchUi(
 void touchUiHandleDisplayRotationChanged() {
   if (!touchUiInitialized) {
     return;
+  }
+
+  if (activeTouchUiPage == TouchUiPage::WeatherRadar) {
+    releaseWeatherRadarDisplayBuffer();
   }
 
   activeTouchUiPage =

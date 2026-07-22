@@ -1,10 +1,10 @@
-# ESP32 World Clock v5.3-alpha4
+# ESP32 World Clock v5.4-alpha5
 
 ESP32 World Clock displays a live day/night world map on a 320 × 240 TFT screen. It can show local and UTC time, the Sun, the Moon and its phase, the current International Space Station position, an approximate one-orbit ISS ground track, a home-location marker, a latitude/longitude grid, saved-location weather, and a broad-market Market Mood display.
 
-The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts, a fixed-scale regional precipitation-radar image, and Market Mood graph data are cached on the card for immediate and offline display.
+The clock can be configured from its resistive touchscreen or from a phone, tablet, or computer through its built-in web interface. Daylight maps are stored on a microSD card and can be previewed, validated, selected, and cached without recompiling the firmware. Weather forecasts, a six-frame fixed-scale regional precipitation-radar animation, and Market Mood graph data are cached on the card for immediate and offline display.
 
-Version 5.3-alpha4 adds a **Market Mood** display based on an equal-weight composite of SPY, QQQ, and IWM. It provides TODAY and 30-session graphs, a lower-right `$` plus mood-face control, browser controls and diagnostics, and microSD caching. The mood categories are descriptive only; they are not an economic-health score, forecast, buy/sell signal, or investment advice. Existing Wi-Fi, touch, weather, display-tuning, map-selection, and other World Clock settings are preserved.
+Version 5.4-alpha5 adds a six-time vertical timeline to the touchscreen radar page while **LOOP** is active. The oldest cached frame appears at the top, the newest at the bottom, inactive frame times are gray, and the displayed frame time is yellow. **LATEST** remains the default and keeps the margin clear. Existing Wi-Fi, touch, weather, Market Mood, display-tuning, map-selection, and other World Clock settings are preserved.
 
 ## Section 1: Using an Installed World Clock
 
@@ -75,7 +75,7 @@ Tap the bottom status bar on the clock display to open the touchscreen menu. The
 - A full-screen display test with persistent touchscreen backlight controls
 - Touch recalibration from Diagnostics without erasing Wi-Fi or other settings
 - A saved-location weather page with current conditions and a three-day forecast
-- A fixed-scale regional precipitation-radar page centered on the saved location
+- A fixed-scale animated regional precipitation-radar page centered on the saved location
 
 Settings changed on the touchscreen use the same saved Preferences values as the browser controls. Most touchscreen menus return to the clock automatically after one minute without activity. The radar and display-test pages are exceptions: they remain displayed until the user presses **CLOCK** or explicitly navigates away.
 
@@ -143,16 +143,18 @@ The touchscreen Weather page names the saved location in its header when a rever
 - The age of the cached report
 - Three daily cards with condition, high, low, and maximum precipitation probability
 
-Use **REFRESH** to request a new forecast. Use **RADAR** to open the regional precipitation-radar page. The radar page shows a fixed-scale regional map centered on the saved latitude and longitude, places a crosshair at the saved point, and overlays the latest available RainViewer precipitation frame. The background is assembled from native 256 × 256 OpenStreetMap raster tiles at the same Web-Mercator zoom, so roads, boundaries, coastlines, and labels remain sharp instead of enlarging the 320 × 240 world map. It is not an interactive map and does not pan, zoom, or animate in this release. The radar page stays open until **CLOCK** is pressed; the normal one-minute touchscreen inactivity timeout does not close it.
+Use **REFRESH** to request a new forecast. Use **RADAR** to open the regional precipitation-radar page. The radar page shows a fixed-scale regional map centered on the saved latitude and longitude, places a crosshair at the saved point, and offers the newest cached RainViewer image or a loop of the six newest past-radar frames. The background is assembled from native 256 × 256 OpenStreetMap raster tiles at the same Web-Mercator zoom, so roads, boundaries, coastlines, and labels remain sharp instead of enlarging the 320 × 240 world map.
 
-The browser **Weather** page shows the resolved location name, saved coordinates, the same current conditions, and the three-day summary. It can schedule forecast and radar refreshes and can display the cached radar overlay. The browser image remains the transparent radar layer; the clock display combines it with cached OpenStreetMap raster tiles. Areas without precipitation remain transparent so the basemap remains visible.
+The bottom row contains **FCST**, **REFR**, **LATEST**, **LOOP**, and **CLOCK**. The active radar mode is highlighted. The page always opens in **LATEST**, which immediately selects the newest cached frame and automatically switches to a newly downloaded frame when a refresh completes. **LOOP** starts at the oldest cached frame, advances about every 0.9 seconds, pauses about 1.8 seconds on the newest image, and repeats. Refreshing does not change the selected mode. Leaving and reopening the radar page returns to **LATEST**. The browser retains previous/next frame controls for detailed inspection. The map remains fixed at the saved location and does not pan or zoom. The radar page stays open until **CLOCK** is pressed; the normal one-minute touchscreen inactivity timeout does not close it.
+
+The browser **Weather** page shows the resolved location name, saved coordinates, the same current conditions, and the three-day summary. It can schedule forecast and radar refreshes, opens on the latest cached frame, provides a LOOP mode, and retains previous/next controls for individual-frame inspection. The browser images remain transparent radar layers; the clock display combines them with cached OpenStreetMap raster tiles. Areas without precipitation remain transparent so the basemap remains visible.
 
 Normal refresh intervals are:
 
 - Forecast: every 30 minutes
-- Radar: every 15 minutes after radar has first been requested
+- Radar metadata: every 10 minutes after radar has first been requested
 
-Opening the radar page requests a frame when none is cached or when the cached frame is stale. It also downloads only the small set of OpenStreetMap tiles needed by the current viewport when those files are missing. Basemap tiles are then reused from the microSD card and are not refreshed with every 15-minute radar update. The last successful forecast, radar image, and basemap remain available when the internet connection is unavailable. Failed downloads do not replace the last valid radar image. The Weather and Diagnostics pages display the cache age and retrieval errors.
+Opening the radar page requests RainViewer metadata when no animation is cached or when the cache is stale. The firmware retains matching cached timestamps and downloads only missing frames, one frame per service-loop pass, up to six frames total. It also downloads only the small set of OpenStreetMap tiles needed by the current viewport when those files are missing. Basemap tiles are reused from the microSD card and are not refreshed with every radar update. The last successful forecast, radar animation, and basemap remain available when the internet connection is unavailable. Failed frame downloads do not erase frames that are still part of the current sequence. The Weather and Diagnostics pages display the cache age and retrieval errors.
 
 Weather uses the saved coordinates exactly; it does not infer coordinates from the Wi-Fi network and it does not use a finger press on the world map. After a successful forecast, the firmware makes a low-frequency reverse-geocoding request to label those coordinates. The label is cached with the forecast, and coordinates remain the fallback if naming is unavailable. Change the point on the Settings or touchscreen Location page. Changing coordinates invalidates both weather caches. Changing units invalidates only the forecast values.
 
@@ -282,7 +284,7 @@ Use the browser's **Refresh** link to update the values.
 - The map, terminator, astronomy overlays, and ISS data normally update together every five minutes.
 - Wi-Fi, NTP, and microSD failures are retried automatically.
 - Weather forecasts refresh in the background every 30 minutes when weather and a saved location are available.
-- After a radar image has been requested, stale radar is refreshed in the background every 15 minutes.
+- After radar has been requested, its metadata is refreshed in the background every 10 minutes and only missing animation frames are downloaded.
 - When Market Mood is enabled, current-session market data refreshes approximately every 10 minutes; 30-session history refreshes less often.
 - Sun, Moon, and terminator positions are calculated by the clock.
 - ISS marker and track features require internet access to retrieve a current ISS position.
@@ -394,7 +396,7 @@ Install:
 3. **LovyanGFX** through Arduino Library Manager
 4. **PNGdec** by Larry Bank/BitBank through Arduino Library Manager
 
-The v5.3-alpha4 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
+The v5.4-alpha5 development baseline uses **Arduino IDE 2.3.10** and **LovyanGFX 1.2.25**. Other compatible 2.x IDE and library versions may work, but these are the known project versions.
 
 The following headers are supplied by the ESP32 Arduino core and should not normally be installed separately:
 
@@ -470,7 +472,7 @@ Also confirm that the firmware version is:
 
 ```cpp
 static constexpr const char *FIRMWARE_VERSION =
-  "5.3-alpha4";
+  "5.4-alpha5";
 ```
 
 Selecting the wrong profile can produce a screen rotated by 90 degrees, reversed text, incorrect red/blue colors, or an inverted display. Correct the board selection before changing display-driver code.
@@ -528,7 +530,8 @@ Do not create the cache files manually. The firmware generates files such as:
 /maps/earth_day_political.wc2-b1-d100.rgb565
 /earth_night.wc2-b1-n100.rgb565
 /weather/forecast.bin
-/weather/radar.png
+/weather/radar-frame-0.png through radar-frame-5.png
+/weather/radar-frames.bin
 /weather/radar.bin
 /weather/osm_<zoom>_<x>_<y>.png
 ```
@@ -670,7 +673,7 @@ The ESP32-2432S028 name is used for several production revisions. This profile s
 
 **Weather compilation or runtime problems**
 
-- No ArduinoJson installation is required; v5.3-alpha4 uses small built-in parsers and the HTTP/TLS classes supplied by the ESP32 Arduino core.
+- No ArduinoJson installation is required; v5.4-alpha5 uses small built-in parsers and the HTTP/TLS classes supplied by the ESP32 Arduino core.
 - Confirm that `HTTPClient.h` and `WiFiClientSecure.h` are available from the selected ESP32 board package.
 - Confirm that the partition scheme still provides enough application space after adding `67_Weather.ino`.
 - Persistent weather, radar, and basemap caching requires a writable microSD card; the firmware creates `/weather` automatically.
@@ -693,3 +696,52 @@ Large Market Mood scratch buffers were moved off the loop-task stack, and intrad
 ## v5.3-alpha4 graph-scale update
 
 Market Mood graphs now include three horizontal timeline ticks with actual cached times or dates, plus compact vertical percentage ticks. The touchscreen and browser charts use edge axes and ticks without grid lines.
+
+
+## v5.4-alpha5 LOOP timeline
+
+- Uses the touchscreen radar page's existing left margin for the cached-frame timeline.
+- Lists frame times oldest at the top and newest at the bottom while **LOOP** is selected.
+- Draws inactive times in gray and the currently displayed frame time in yellow.
+- Rebuilds the list automatically whenever radar frames are added, replaced, or removed.
+- Keeps the margin clear in **LATEST** mode.
+- Uses compact hour-and-minute labels so all six times fit without shrinking the radar image.
+
+## v5.4-alpha4 radar modes
+
+- Opens the device radar page in **LATEST** instead of starting playback automatically.
+- **LATEST** always selects the newest cached timestamp and auto-updates after a completed radar refresh.
+- **LOOP** starts at the oldest frame, plays oldest to newest, and holds the latest frame twice as long before restarting.
+- Refreshes preserve the selected mode. LATEST switches to the newest frame after the refresh commits; LOOP preserves its selected timestamp when possible and resumes with the refreshed sequence.
+- Replaces the touchscreen previous/play/next controls with larger **LATEST** and **LOOP** controls.
+- Keeps previous/next frame inspection in the browser interface.
+
+## v5.4-alpha3 low-memory radar compositor
+
+- Replaces the 81,920-byte full-frame RGB565 allocation with a dynamically sized 1-, 2-, 4-, or 8-row band buffer.
+- Normal working allocation is 4,096 bytes; the minimum fallback is 512 bytes.
+- Builds `/weather/radar-base.rgb565` from the cached OpenStreetMap tiles for the current map viewport.
+- Reads each basemap scanline from microSD, overlays the corresponding transparent RainViewer pixels, and updates the LCD in short horizontal bands.
+- Leaves the previous completed radar frame visible outside the band currently being updated, avoiding black flashes.
+- Rebuilds the basemap cache automatically when the saved location changes.
+- Uses `PAUSED STATIC` only if even the one-row compositor or basemap cache is unavailable.
+
+## v5.4-alpha2 smooth-radar update
+
+- Composes each complete 256 x 160 RGB565 radar frame off-screen before updating the LCD.
+- Eliminates the full radar-area clear that caused visible blacking-out between frames.
+- Pushes the completed basemap and radar overlay in one LCD image transfer.
+- Allocates the approximately 80 KB composition buffer only while the radar page is open.
+- Releases the buffer immediately when leaving the radar page.
+- Pauses automatic playback and retains manual/static radar viewing if the buffer cannot be allocated safely.
+- Leaves RainViewer downloads, six-frame caching, frame controls, browser animation, and refresh scheduling unchanged.
+
+## v5.4-alpha1 animated-radar update
+
+- Caches the six newest RainViewer past-radar frames, normally representing about 50 minutes at ten-minute spacing.
+- Plays frames from oldest to newest at approximately 0.9 seconds per frame.
+- Adds touchscreen previous, play/pause, and next controls while retaining forecast, refresh, and clock navigation.
+- Adds equivalent browser animation controls.
+- Downloads only timestamps not already present in the SD cache.
+- Processes one image download per service-loop pass to avoid a long multi-frame blocking operation.
+- Migrates the previous single `/weather/radar.png` cache into the first animation slot when possible.

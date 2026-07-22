@@ -1,7 +1,7 @@
 #pragma once
 
 static constexpr const char *FIRMWARE_VERSION =
-  "5.3-alpha4";
+  "5.4-alpha5";
 
 // ============================================================
 // BOARD SELECTION
@@ -14,7 +14,7 @@ static constexpr const char *FIRMWARE_VERSION =
 #define BOARD_E32R28T           2
 #define BOARD_AITRIP_ESP32_2432S028R  3
 
-#define WORLDCLOCK_BOARD BOARD_AITRIP_ESP32_2432S028R
+#define WORLDCLOCK_BOARD BOARD_E32R28T
 
 #include "board_profiles.h"
 
@@ -406,18 +406,36 @@ static constexpr const char *WEATHER_RADAR_META_FILE =
 static constexpr const char *WEATHER_RADAR_META_TEMP_FILE =
   "/weather/radar-meta.tmp";
 
+static constexpr const char *WEATHER_RADAR_ANIMATION_META_FILE =
+  "/weather/radar-frames.bin";
+
+static constexpr const char *WEATHER_RADAR_ANIMATION_META_TEMP_FILE =
+  "/weather/radar-frames.tmp";
+
+static constexpr const char *WEATHER_RADAR_FRAME_PREFIX =
+  "/weather/radar-frame-";
+
 static constexpr const char *WEATHER_BASE_TILE_PREFIX =
   "/weather/osm_";
 
 static constexpr const char *WEATHER_BASE_TILE_TEMP_FILE =
   "/weather/osm-tile.tmp";
 
+static constexpr const char *WEATHER_RADAR_BASE_CACHE_FILE =
+  "/weather/radar-base.rgb565";
+
+static constexpr const char *WEATHER_RADAR_BASE_CACHE_TEMP_FILE =
+  "/weather/radar-base.tmp";
+
 static constexpr size_t WEATHER_FORECAST_DAYS = 3;
 static constexpr unsigned long WEATHER_REFRESH_MS = 30UL * 60UL * 1000UL;
-static constexpr unsigned long WEATHER_RADAR_REFRESH_MS = 15UL * 60UL * 1000UL;
+static constexpr unsigned long WEATHER_RADAR_REFRESH_MS = 10UL * 60UL * 1000UL;
 static constexpr unsigned long WEATHER_RETRY_MS = 60UL * 1000UL;
 static constexpr unsigned long WEATHER_INITIAL_FETCH_DELAY_MS = 8000UL;
 static constexpr uint16_t WEATHER_HTTP_TIMEOUT_MS = 20000;
+static constexpr size_t WEATHER_RADAR_ANIMATION_FRAME_COUNT = 6;
+static constexpr unsigned long WEATHER_RADAR_ANIMATION_FRAME_MS = 900UL;
+static constexpr unsigned long WEATHER_RADAR_ANIMATION_LATEST_HOLD_MS = 1800UL;
 static constexpr unsigned long WEATHER_LOCATION_NAME_RETRY_MS =
   6UL * 60UL * 60UL * 1000UL;
 static constexpr double WEATHER_LOCATION_MATCH_DEGREES = 0.005;
@@ -1067,6 +1085,23 @@ bool homeLocationIsConfigured();
 bool weatherFeatureAvailable();
 bool weatherForecastAvailableForSavedLocation();
 bool weatherRadarAvailableForSavedLocation();
+size_t weatherRadarFrameCount();
+size_t weatherRadarSelectedFrameIndex();
+time_t weatherRadarFrameTime(size_t index);
+String weatherRadarFramePath(size_t index);
+time_t weatherRadarSelectedFrameTime();
+String weatherRadarSelectedFramePath();
+void resetWeatherRadarDisplayMode();
+void selectWeatherRadarLatestMode();
+void selectWeatherRadarLoopMode();
+bool weatherRadarLatestModeIsSelected();
+bool weatherRadarLoopModeIsSelected();
+bool selectPreviousWeatherRadarFrame();
+bool selectNextWeatherRadarFrame();
+bool weatherRadarAnimationIsPlaying();
+bool weatherRadarRefreshInProgress();
+size_t weatherRadarRefreshCompletedCount();
+size_t weatherRadarRefreshTargetCount();
 bool weatherForecastIsStale();
 bool weatherRadarIsStale();
 void initializeWeatherService();
@@ -1093,6 +1128,8 @@ void drawWeatherIcon(
   uint16_t backgroundColor
 );
 bool drawWeatherRadarImage();
+bool weatherRadarSmoothPlaybackAvailable();
+void releaseWeatherRadarDisplayBuffer();
 
 
 // Market Mood.

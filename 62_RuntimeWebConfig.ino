@@ -1270,6 +1270,28 @@ void handleDisplayTestClock() {
   );
 }
 
+String weatherRadarWebFrameLabel(time_t timestamp) {
+  if (timestamp <= 0) {
+    return "--";
+  }
+
+  tm localTm {};
+  localtime_r(&timestamp, &localTm);
+  char label[32];
+
+  if (timeSettings.use24Hour) {
+    strftime(label, sizeof(label), "%H:%M", &localTm);
+  } else {
+    strftime(label, sizeof(label), "%I:%M %p", &localTm);
+
+    if (label[0] == '0') {
+      memmove(label, label + 1, strlen(label));
+    }
+  }
+
+  return String(label);
+}
+
 String buildWeatherPage(
   const String &message = "",
   bool error = false
@@ -1425,14 +1447,80 @@ String buildWeatherPage(
   );
 
   if (weatherRadarAvailableForSavedLocation()) {
+    const size_t frameCount = weatherRadarFrameCount();
+    const size_t latestFrameIndex = frameCount - 1;
     page += F(
-      "<img class=\"radar-image\" src=\"/weather/radar.png?t="
+      "<img id=\"radar-animation\" class=\"radar-image\" "
+      "src=\"/weather/radar.png?frame="
     );
-    page += String(static_cast<unsigned long>(weatherRadarInfo.frameTime));
+    page += String(latestFrameIndex);
+    page += F("&t=");
+    page += String(
+      static_cast<unsigned long>(weatherRadarFrameTime(latestFrameIndex))
+    );
     page += F(
-      "\" width=\"256\" height=\"256\" alt=\"Cached RainViewer radar overlay\">"
-      "<p class=\"note\">The device display places this transparent radar "
-      "overlay over cached OpenStreetMap raster tiles and marks the saved "
+      "\" width=\"256\" height=\"256\" "
+      "alt=\"Cached RainViewer radar overlay\">"
+      "<p id=\"radar-frame-label\" class=\"note\">"
+    );
+    page += htmlEscapeRuntime(
+      String("LATEST - ") +
+      weatherRadarWebFrameLabel(weatherRadarFrameTime(latestFrameIndex))
+    );
+    page += F("</p>");
+
+    if (frameCount > 1) {
+      page += F(
+        "<button id=\"radar-latest\" class=\"button\" type=\"button\" onclick=\"radarLatest()\">LATEST</button>"
+        "<button id=\"radar-loop\" class=\"button\" type=\"button\" onclick=\"radarLoop()\">LOOP</button>"
+        "<button class=\"button\" type=\"button\" onclick=\"radarPrevious()\">Previous frame</button>"
+        "<button class=\"button\" type=\"button\" onclick=\"radarNext()\">Next frame</button>"
+        "<script>const radarFrames=["
+      );
+
+      for (size_t index = 0; index < frameCount; ++index) {
+        if (index > 0) {
+          page += ',';
+        }
+
+        page += F("{u:'/weather/radar.png?frame=");
+        page += String(index);
+        page += F("&t=");
+        page += String(
+          static_cast<unsigned long>(weatherRadarFrameTime(index))
+        );
+        page += F("',l:'Frame ");
+        page += String(index + 1);
+        page += '/';
+        page += String(frameCount);
+        page += F(" - ");
+        const String frameTimeLabel =
+          weatherRadarWebFrameLabel(weatherRadarFrameTime(index));
+        page += frameTimeLabel;
+        page += F("',t:'");
+        page += frameTimeLabel;
+        page += F("'}");
+      }
+
+      page += F(
+        "];let radarIndex=radarFrames.length-1;let radarMode='latest';let radarNextAt=0;"
+        "function radarButtons(){document.getElementById('radar-latest').textContent=radarMode==='latest'?'LATEST (active)':'LATEST';"
+        "document.getElementById('radar-loop').textContent=radarMode==='loop'?'LOOP (active)':'LOOP';}"
+        "function radarShow(){document.getElementById('radar-animation').src=radarFrames[radarIndex].u;"
+        "let label=radarFrames[radarIndex].l;if(radarMode==='latest')label='LATEST - '+radarFrames[radarIndex].t;"
+        "else if(radarMode==='loop')label='LOOP - '+label;document.getElementById('radar-frame-label').textContent=label;}"
+        "function radarLatest(){radarMode='latest';radarIndex=radarFrames.length-1;radarShow();radarButtons();}"
+        "function radarLoop(){radarMode='loop';radarIndex=0;radarShow();radarButtons();radarNextAt=Date.now()+900;}"
+        "function radarNext(){radarMode='manual';radarIndex=(radarIndex+1)%radarFrames.length;radarShow();radarButtons();}"
+        "function radarPrevious(){radarMode='manual';radarIndex=(radarIndex+radarFrames.length-1)%radarFrames.length;radarShow();radarButtons();}"
+        "setInterval(function(){if(radarMode!=='loop'||Date.now()<radarNextAt)return;radarIndex=(radarIndex+1)%radarFrames.length;radarShow();"
+        "radarNextAt=Date.now()+(radarIndex===radarFrames.length-1?1800:900);},100);radarButtons();</script>"
+      );
+    }
+
+    page += F(
+      "<p class=\"note\">The device display places these transparent radar "
+      "frames over cached OpenStreetMap raster tiles and marks the saved "
       "location at the center.</p>"
     );
   } else {
@@ -1515,7 +1603,21 @@ void handleWeatherRadarImage() {
     return;
   }
 
-  File image = SD.open(WEATHER_RADAR_IMAGE_FILE, FILE_READ);
+  size_t frameIndex = weatherRadarFrameCount() - 1;
+
+  if (runtimeServer.hasArg("frame")) {
+    const int requested = runtimeServer.arg("frame").toInt();
+
+    if (
+      requested >= 0 &&
+      static_cast<size_t>(requested) < weatherRadarFrameCount()
+    ) {
+      frameIndex = static_cast<size_t>(requested);
+    }
+  }
+
+  const String framePath = weatherRadarFramePath(frameIndex);
+  File image = SD.open(framePath.c_str(), FILE_READ);
 
   if (!image) {
     runtimeServer.send(404, "text/plain", "Radar image not found");
@@ -2222,12 +2324,23 @@ String buildDiagnosticsPage() {
   row("Forecast cache", weatherForecastAgeText());
   row("Radar cache", weatherRadarAgeText());
   row(
+    "Radar animation frames",
+    String(weatherRadarFrameCount()) + "/" +
+      String(WEATHER_RADAR_ANIMATION_FRAME_COUNT)
+  );
+  row(
     "Forecast refresh",
     weatherForecastRefreshIsPending() ? "Pending" : "Idle"
   );
   row(
     "Radar refresh",
-    weatherRadarRefreshIsPending() ? "Pending" : "Idle"
+    weatherRadarRefreshInProgress()
+      ? String("Downloading ") +
+          String(weatherRadarRefreshCompletedCount()) + "/" +
+          String(weatherRadarRefreshTargetCount())
+      : weatherRadarRefreshIsPending()
+          ? "Pending"
+          : "Idle"
   );
   row(
     "Weather error",
@@ -2799,7 +2912,9 @@ void serviceRuntimeConfigServer() {
     if (weatherChanged) {
       weatherForecast.valid = false;
 
-      if (homeCoordinatesChanged) {
+      if (homeCoordinatesChanged && sdReady) {
+        initializeWeatherService();
+      } else if (homeCoordinatesChanged) {
         weatherRadarInfo.valid = false;
       }
 

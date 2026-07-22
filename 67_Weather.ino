@@ -1,10 +1,10 @@
 // ============================================================
-// Saved-location weather and regional precipitation radar
+// Saved-location weather and LATEST/LOOP regional precipitation radar
 // ============================================================
 //
 // Forecast data comes from Open-Meteo. The regional radar overlay comes
 // from RainViewer and is centered on the saved home coordinates. Forecast
-// and radar data are cached on the microSD card for offline display.
+// and up to six radar frames are cached on microSD for offline playback.
 // ============================================================
 
 WeatherSettings weatherSettings;
@@ -32,6 +32,79 @@ struct WeatherRadarCacheRecord {
   WeatherRadarInfo data;
   uint32_t checksum = 0;
 };
+
+static constexpr uint32_t WEATHER_RADAR_ANIMATION_MAGIC = 0x57434131UL; // WCA1
+static constexpr uint16_t WEATHER_RADAR_ANIMATION_VERSION = 1;
+
+static constexpr uint32_t WEATHER_RADAR_BASE_CACHE_MAGIC = 0x57434231UL; // WCB1
+static constexpr uint16_t WEATHER_RADAR_BASE_CACHE_VERSION = 1;
+
+struct WeatherRadarBaseCacheHeader {
+  uint32_t magic = WEATHER_RADAR_BASE_CACHE_MAGIC;
+  uint16_t version = WEATHER_RADAR_BASE_CACHE_VERSION;
+  uint16_t recordSize = sizeof(WeatherRadarBaseCacheHeader);
+  int32_t viewportLeft = 0;
+  int32_t viewportTop = 0;
+  uint16_t width = WEATHER_RADAR_IMAGE_W;
+  uint16_t height = WEATHER_RADAR_IMAGE_H;
+  uint8_t zoom = WEATHER_RADAR_ZOOM;
+  uint8_t reserved[3] = {0, 0, 0};
+  uint32_t dataBytes =
+    static_cast<uint32_t>(WEATHER_RADAR_IMAGE_W) *
+    static_cast<uint32_t>(WEATHER_RADAR_IMAGE_H) *
+    sizeof(uint16_t);
+  uint32_t checksum = 0;
+};
+
+struct WeatherRadarFrameRecord {
+  time_t frameTime = 0;
+  uint8_t slot = 0;
+  uint8_t valid = 0;
+  uint16_t reserved = 0;
+};
+
+struct WeatherRadarAnimationCacheRecord {
+  uint32_t magic = WEATHER_RADAR_ANIMATION_MAGIC;
+  uint16_t version = WEATHER_RADAR_ANIMATION_VERSION;
+  uint16_t recordSize = sizeof(WeatherRadarAnimationCacheRecord);
+  double latitude = 0.0;
+  double longitude = 0.0;
+  uint8_t frameCount = 0;
+  uint8_t reserved[3] = {0, 0, 0};
+  WeatherRadarFrameRecord frames[WEATHER_RADAR_ANIMATION_FRAME_COUNT];
+  uint32_t checksum = 0;
+};
+
+struct RainViewerFrameDescriptor {
+  time_t frameTime = 0;
+  char path[96] = "";
+};
+
+struct WeatherRadarRefreshCandidate {
+  time_t frameTime = 0;
+  uint8_t slot = 0;
+  uint8_t valid = 0;
+  uint8_t needsDownload = 0;
+  uint8_t attempted = 0;
+  char path[96] = "";
+};
+
+enum class WeatherRadarDisplayMode : uint8_t {
+  Latest,
+  Loop
+};
+
+WeatherRadarFrameRecord weatherRadarFrames[WEATHER_RADAR_ANIMATION_FRAME_COUNT];
+size_t weatherRadarFrameCountValue = 0;
+size_t weatherRadarSelectedFrameIndexValue = 0;
+WeatherRadarDisplayMode weatherRadarDisplayModeValue =
+  WeatherRadarDisplayMode::Latest;
+bool weatherRadarAnimationPlayingValue = false;
+
+WeatherRadarRefreshCandidate weatherRadarRefreshCandidates[WEATHER_RADAR_ANIMATION_FRAME_COUNT];
+size_t weatherRadarRefreshCandidateCount = 0;
+String weatherRadarRefreshHost;
+bool weatherRadarRefreshActive = false;
 
 unsigned long lastWeatherAttemptAt = 0;
 unsigned long lastRadarAttemptAt = 0;
@@ -61,8 +134,32 @@ int weatherBaseTileDestinationX = WEATHER_RADAR_IMAGE_X;
 int weatherBaseTileDestinationY = WEATHER_RADAR_IMAGE_Y;
 bool weatherBaseTileDecodeFailed = false;
 
+// Radar animation is composed in small horizontal RGB565 bands. Each band is
+// seeded from a cached basemap scanline, blended with the transparent radar
+// pixels, and pushed while the previous completed frame remains visible. This
+// avoids both the original black redraw and the 81,920-byte full-frame buffer.
+uint16_t *weatherRadarBandBuffer = nullptr;
+size_t weatherRadarBandRowsCapacity = 0;
+size_t weatherRadarBandStartRow = 0;
+size_t weatherRadarBandLineCount = 0;
+size_t weatherRadarBandLoadedRows = 0;
+bool weatherRadarRenderToBandBuffer = false;
+bool weatherRadarBandAllocationFailed = false;
+bool weatherRadarBaseCacheReadyValue = false;
+
+File weatherRadarBaseCacheReadFile;
+File weatherRadarBaseCacheBuildFile;
+bool weatherBaseTileWriteToCache = false;
+
 bool ensureWeatherBaseMapTiles();
 bool weatherBaseMapTilesAvailableForSavedLocation();
+bool ensureWeatherRadarBaseCache();
+bool weatherRadarBaseCacheHeaderMatches(
+  const WeatherRadarBaseCacheHeader &header
+);
+bool openWeatherRadarBaseCacheForRead();
+bool buildWeatherRadarBaseCache();
+bool drawWeatherRadarBaseCache();
 
 uint32_t weatherChecksum(
   const uint8_t *data,
@@ -76,6 +173,67 @@ uint32_t weatherChecksum(
   }
 
   return value;
+}
+
+bool ensureWeatherRadarBandBuffer() {
+  if (weatherRadarBandBuffer != nullptr) {
+    return true;
+  }
+
+  // Prefer eight scanlines (4 KiB), but gracefully fall back as low as one
+  // scanline (512 bytes) on a fragmented non-PSRAM heap.
+  static const uint8_t candidateRows[] = {8, 4, 2, 1};
+
+  for (uint8_t rows : candidateRows) {
+    const size_t bytes =
+      static_cast<size_t>(WEATHER_RADAR_IMAGE_W) *
+      static_cast<size_t>(rows) *
+      sizeof(uint16_t);
+
+    weatherRadarBandBuffer = static_cast<uint16_t *>(malloc(bytes));
+
+    if (weatherRadarBandBuffer != nullptr) {
+      weatherRadarBandRowsCapacity = rows;
+      weatherRadarBandAllocationFailed = false;
+      Serial.printf(
+        "Radar: band compositor using %u rows (%u bytes)\n",
+        static_cast<unsigned>(rows),
+        static_cast<unsigned>(bytes)
+      );
+      return true;
+    }
+  }
+
+  weatherRadarBandRowsCapacity = 0;
+  weatherRadarBandAllocationFailed = true;
+  weatherRadarAnimationPlayingValue = false;
+  Serial.println("Radar: band compositor allocation failed");
+  return false;
+}
+
+void releaseWeatherRadarDisplayBufferInternal() {
+  weatherRadarRenderToBandBuffer = false;
+  weatherRadarBandStartRow = 0;
+  weatherRadarBandLineCount = 0;
+  weatherRadarBandLoadedRows = 0;
+
+  if (weatherRadarBaseCacheReadFile) {
+    weatherRadarBaseCacheReadFile.close();
+  }
+
+  if (weatherRadarBaseCacheBuildFile) {
+    weatherRadarBaseCacheBuildFile.close();
+  }
+
+  weatherBaseTileWriteToCache = false;
+
+  if (weatherRadarBandBuffer != nullptr) {
+    free(weatherRadarBandBuffer);
+    weatherRadarBandBuffer = nullptr;
+  }
+
+  weatherRadarBandRowsCapacity = 0;
+  weatherRadarBandAllocationFailed = false;
 }
 
 bool ensureWeatherDirectory() {
@@ -241,6 +399,22 @@ bool saveWeatherRadarCache() {
   );
 }
 
+String weatherRadarFramePathForSlot(uint8_t slot) {
+  return
+    String(WEATHER_RADAR_FRAME_PREFIX) +
+    String(slot) +
+    F(".png");
+}
+
+void clearWeatherRadarFrames() {
+  for (size_t index = 0; index < WEATHER_RADAR_ANIMATION_FRAME_COUNT; ++index) {
+    weatherRadarFrames[index] = WeatherRadarFrameRecord();
+  }
+
+  weatherRadarFrameCountValue = 0;
+  weatherRadarSelectedFrameIndexValue = 0;
+}
+
 bool loadWeatherRadarCache() {
   WeatherRadarCacheRecord record;
 
@@ -253,15 +427,129 @@ bool loadWeatherRadarCache() {
   }
 
   weatherRadarInfo = record.data;
+  return weatherRadarInfo.valid;
+}
 
-  if (
-    !weatherRadarInfo.valid ||
-    !SD.exists(WEATHER_RADAR_IMAGE_FILE)
-  ) {
-    weatherRadarInfo.valid = false;
+bool saveWeatherRadarAnimationCache() {
+  WeatherRadarAnimationCacheRecord record {};
+  record.latitude = locationGridSettings.homeLatitude;
+  record.longitude = locationGridSettings.homeLongitude;
+  record.frameCount = static_cast<uint8_t>(weatherRadarFrameCountValue);
+
+  for (size_t index = 0; index < weatherRadarFrameCountValue; ++index) {
+    record.frames[index] = weatherRadarFrames[index];
+  }
+
+  return writeWeatherRecord(
+    WEATHER_RADAR_ANIMATION_META_FILE,
+    WEATHER_RADAR_ANIMATION_META_TEMP_FILE,
+    record
+  );
+}
+
+bool loadWeatherRadarAnimationCache() {
+  clearWeatherRadarFrames();
+
+  WeatherRadarAnimationCacheRecord record {};
+  File input = SD.open(WEATHER_RADAR_ANIMATION_META_FILE, FILE_READ);
+
+  if (!input || input.size() != sizeof(record)) {
+    if (input) {
+      input.close();
+    }
     return false;
   }
 
+  const size_t bytesRead = input.read(
+    reinterpret_cast<uint8_t *>(&record),
+    sizeof(record)
+  );
+  input.close();
+
+  if (
+    bytesRead != sizeof(record) ||
+    record.magic != WEATHER_RADAR_ANIMATION_MAGIC ||
+    record.version != WEATHER_RADAR_ANIMATION_VERSION ||
+    record.recordSize != sizeof(record) ||
+    record.frameCount == 0 ||
+    record.frameCount > WEATHER_RADAR_ANIMATION_FRAME_COUNT
+  ) {
+    return false;
+  }
+
+  const uint32_t savedChecksum = record.checksum;
+  record.checksum = 0;
+  const uint32_t calculated = weatherChecksum(
+    reinterpret_cast<const uint8_t *>(&record),
+    sizeof(record) - sizeof(record.checksum)
+  );
+  record.checksum = savedChecksum;
+
+  if (calculated != savedChecksum) {
+    return false;
+  }
+
+  if (
+    fabs(record.latitude - locationGridSettings.homeLatitude) > WEATHER_LOCATION_MATCH_DEGREES ||
+    fabs(record.longitude - locationGridSettings.homeLongitude) > WEATHER_LOCATION_MATCH_DEGREES
+  ) {
+    return false;
+  }
+
+  for (size_t index = 0; index < record.frameCount; ++index) {
+    const WeatherRadarFrameRecord &frame = record.frames[index];
+
+    if (
+      !frame.valid ||
+      frame.slot >= WEATHER_RADAR_ANIMATION_FRAME_COUNT ||
+      frame.frameTime <= 0 ||
+      !SD.exists(weatherRadarFramePathForSlot(frame.slot).c_str())
+    ) {
+      continue;
+    }
+
+    weatherRadarFrames[weatherRadarFrameCountValue++] = frame;
+  }
+
+  if (weatherRadarFrameCountValue == 0) {
+    return false;
+  }
+
+  weatherRadarSelectedFrameIndexValue = weatherRadarFrameCountValue - 1;
+  weatherRadarInfo.valid = true;
+  weatherRadarInfo.latitude = record.latitude;
+  weatherRadarInfo.longitude = record.longitude;
+  weatherRadarInfo.frameTime =
+    weatherRadarFrames[weatherRadarFrameCountValue - 1].frameTime;
+  weatherRadarInfo.zoom = WEATHER_RADAR_ZOOM;
+  return true;
+}
+
+bool migrateLegacyWeatherRadarImage() {
+  if (
+    weatherRadarFrameCountValue > 0 ||
+    !weatherRadarInfo.valid ||
+    weatherRadarInfo.frameTime <= 0 ||
+    fabs(weatherRadarInfo.latitude - locationGridSettings.homeLatitude) > WEATHER_LOCATION_MATCH_DEGREES ||
+    fabs(weatherRadarInfo.longitude - locationGridSettings.homeLongitude) > WEATHER_LOCATION_MATCH_DEGREES ||
+    !SD.exists(WEATHER_RADAR_IMAGE_FILE)
+  ) {
+    return false;
+  }
+
+  const String destination = weatherRadarFramePathForSlot(0);
+  SD.remove(destination.c_str());
+
+  if (!SD.rename(WEATHER_RADAR_IMAGE_FILE, destination.c_str())) {
+    return false;
+  }
+
+  weatherRadarFrames[0].valid = 1;
+  weatherRadarFrames[0].slot = 0;
+  weatherRadarFrames[0].frameTime = weatherRadarInfo.frameTime;
+  weatherRadarFrameCountValue = 1;
+  weatherRadarSelectedFrameIndexValue = 0;
+  saveWeatherRadarAnimationCache();
   return true;
 }
 
@@ -1037,6 +1325,68 @@ int32_t weatherPngSeekCallback(
   ) ? 1 : 0;
 }
 
+bool flushWeatherRadarBand() {
+  if (
+    weatherRadarBandLineCount == 0 ||
+    weatherRadarBandBuffer == nullptr
+  ) {
+    return true;
+  }
+
+  lcd.pushImage(
+    WEATHER_RADAR_IMAGE_X,
+    WEATHER_RADAR_IMAGE_Y + static_cast<int>(weatherRadarBandStartRow),
+    WEATHER_RADAR_IMAGE_W,
+    static_cast<int>(weatherRadarBandLineCount),
+    weatherRadarBandBuffer
+  );
+
+  weatherRadarBandLineCount = 0;
+  weatherRadarBandLoadedRows = 0;
+  return true;
+}
+
+bool loadWeatherRadarBaseBand(size_t startLocalY) {
+  if (
+    !weatherRadarBaseCacheReadFile ||
+    weatherRadarBandBuffer == nullptr ||
+    weatherRadarBandRowsCapacity == 0 ||
+    startLocalY >= WEATHER_RADAR_IMAGE_H
+  ) {
+    return false;
+  }
+
+  weatherRadarBandLoadedRows = min(
+    weatherRadarBandRowsCapacity,
+    static_cast<size_t>(WEATHER_RADAR_IMAGE_H) - startLocalY
+  );
+
+  const size_t lineBytes =
+    static_cast<size_t>(WEATHER_RADAR_IMAGE_W) * sizeof(uint16_t);
+
+  const size_t offset =
+    sizeof(WeatherRadarBaseCacheHeader) + startLocalY * lineBytes;
+
+  const size_t bytes = weatherRadarBandLoadedRows * lineBytes;
+
+  if (!weatherRadarBaseCacheReadFile.seek(offset)) {
+    weatherRadarBandLoadedRows = 0;
+    return false;
+  }
+
+  const bool ok = weatherRadarBaseCacheReadFile.read(
+    reinterpret_cast<uint8_t *>(weatherRadarBandBuffer),
+    bytes
+  ) == static_cast<int>(bytes);
+
+  if (!ok) {
+    weatherRadarBandLoadedRows = 0;
+  }
+
+  return ok;
+}
+
+
 int weatherRadarPngDrawCallback(PNGDRAW *draw) {
   if (
     draw == nullptr ||
@@ -1050,7 +1400,7 @@ int weatherRadarPngDrawCallback(PNGDRAW *draw) {
 
   // Convert the native radar colors without blending them against a
   // synthetic background. RainViewer tiles are transparent overlays; the
-  // alpha mask below decides which pixels are drawn over the daylight map.
+  // alpha mask below decides which pixels replace the cached basemap.
   png.getLineAsRGB565(
     draw,
     weatherPngLine,
@@ -1069,13 +1419,16 @@ int weatherRadarPngDrawCallback(PNGDRAW *draw) {
     return 1;
   }
 
-  // PNGdec packs eight alpha decisions into each mask byte, with the first
-  // pixel in bit 7. Draw only runs containing non-transparent radar pixels.
-  // This preserves the regional map-tile background instead of turning
-  // transparent tile pixels into the former magenta chroma-key color.
   if (draw->iHasAlpha) {
     if (!png.getAlphaMask(draw, weatherPngAlphaMask, 1)) {
-      return 1;
+      // Treat a missing/empty mask as a fully transparent scanline. The
+      // band compositor still pushes the clean basemap line so pixels from
+      // the previous radar frame are removed.
+      memset(
+        weatherPngAlphaMask,
+        0x00,
+        sizeof(weatherPngAlphaMask)
+      );
     }
   } else {
     memset(
@@ -1088,6 +1441,95 @@ int weatherRadarPngDrawCallback(PNGDRAW *draw) {
   const int destinationY =
     weatherRadarDestinationY + draw->y - weatherRadarCropTop;
 
+  const int localY = destinationY - WEATHER_RADAR_IMAGE_Y;
+
+  if (weatherRadarRenderToBandBuffer) {
+    if (
+      weatherRadarBandBuffer == nullptr ||
+      weatherRadarBandRowsCapacity == 0 ||
+      localY < 0 ||
+      localY >= WEATHER_RADAR_IMAGE_H
+    ) {
+      weatherRadarDecodeFailed = true;
+      return 0;
+    }
+
+    const size_t expectedRow =
+      weatherRadarBandStartRow + weatherRadarBandLineCount;
+
+    if (
+      weatherRadarBandLineCount > 0 &&
+      static_cast<size_t>(localY) != expectedRow
+    ) {
+      flushWeatherRadarBand();
+    }
+
+    if (weatherRadarBandLineCount == 0) {
+      weatherRadarBandStartRow = static_cast<size_t>(localY);
+
+      if (!loadWeatherRadarBaseBand(weatherRadarBandStartRow)) {
+        weatherRadarDecodeFailed = true;
+        return 0;
+      }
+    }
+
+    uint16_t *bandLine =
+      weatherRadarBandBuffer +
+      weatherRadarBandLineCount * WEATHER_RADAR_IMAGE_W;
+
+    int x = 0;
+
+    while (x < WEATHER_RADAR_IMAGE_SIZE) {
+      while (
+        x < WEATHER_RADAR_IMAGE_SIZE &&
+        (weatherPngAlphaMask[x >> 3] & (0x80U >> (x & 7))) == 0
+      ) {
+        ++x;
+      }
+
+      const int runStart = x;
+
+      while (
+        x < WEATHER_RADAR_IMAGE_SIZE &&
+        (weatherPngAlphaMask[x >> 3] & (0x80U >> (x & 7))) != 0
+      ) {
+        ++x;
+      }
+
+      if (x > runStart) {
+        const int localX =
+          weatherRadarDestinationX + runStart - WEATHER_RADAR_IMAGE_X;
+
+        if (
+          localX < 0 ||
+          localX + (x - runStart) > WEATHER_RADAR_IMAGE_W
+        ) {
+          weatherRadarDecodeFailed = true;
+          return 0;
+        }
+
+        memcpy(
+          bandLine + localX,
+          weatherPngLine + runStart,
+          static_cast<size_t>(x - runStart) * sizeof(uint16_t)
+        );
+      }
+    }
+
+    ++weatherRadarBandLineCount;
+
+    if (
+      weatherRadarBandLineCount >= weatherRadarBandLoadedRows ||
+      localY == WEATHER_RADAR_IMAGE_H - 1
+    ) {
+      flushWeatherRadarBand();
+    }
+
+    return 1;
+  }
+
+  // Static fallback: update only opaque radar runs over the basemap already
+  // displayed on the LCD.
   int x = 0;
 
   while (x < WEATHER_RADAR_IMAGE_SIZE) {
@@ -1167,16 +1609,59 @@ int weatherBaseTilePngDrawCallback(PNGDRAW *draw) {
   const int sourceX =
     visibleLeft - weatherBaseTileDestinationX;
 
-  lcd.pushImage(
-    visibleLeft,
-    destinationY,
-    visibleRight - visibleLeft,
-    1,
-    weatherPngLine + sourceX
-  );
+  const int localY =
+    destinationY - WEATHER_RADAR_IMAGE_Y;
+
+  const int localX =
+    visibleLeft - WEATHER_RADAR_IMAGE_X;
+
+  const int width = visibleRight - visibleLeft;
+
+  if (weatherBaseTileWriteToCache) {
+    if (
+      !weatherRadarBaseCacheBuildFile ||
+      localY < 0 ||
+      localY >= WEATHER_RADAR_IMAGE_H ||
+      localX < 0 ||
+      localX + width > WEATHER_RADAR_IMAGE_W
+    ) {
+      weatherBaseTileDecodeFailed = true;
+      return 0;
+    }
+
+    const size_t offset =
+      sizeof(WeatherRadarBaseCacheHeader) +
+      (
+        static_cast<size_t>(localY) * WEATHER_RADAR_IMAGE_W +
+        static_cast<size_t>(localX)
+      ) * sizeof(uint16_t);
+
+    const size_t bytes =
+      static_cast<size_t>(width) * sizeof(uint16_t);
+
+    if (
+      !weatherRadarBaseCacheBuildFile.seek(offset) ||
+      weatherRadarBaseCacheBuildFile.write(
+        reinterpret_cast<const uint8_t *>(weatherPngLine + sourceX),
+        bytes
+      ) != bytes
+    ) {
+      weatherBaseTileDecodeFailed = true;
+      return 0;
+    }
+  } else {
+    lcd.pushImage(
+      visibleLeft,
+      destinationY,
+      width,
+      1,
+      weatherPngLine + sourceX
+    );
+  }
 
   return 1;
 }
+
 
 bool validateWeatherRadarPng(const char *path) {
   if (!path || !SD.exists(path)) {
@@ -1337,12 +1822,14 @@ bool downloadUrlToSdFile(
   return true;
 }
 
-bool parseRainViewerMetadata(
+bool parseRainViewerMetadataFrames(
   const String &response,
   String &hostOut,
-  String &pathOut,
-  time_t &frameTimeOut
+  RainViewerFrameDescriptor *framesOut,
+  size_t &frameCountOut
 ) {
+  frameCountOut = 0;
+
   if (!jsonStringInRange(
         response,
         "host",
@@ -1353,45 +1840,292 @@ bool parseRainViewerMetadata(
     return false;
   }
 
-  const int nowcastPosition = response.indexOf("\"nowcast\"");
-  const int searchEnd = nowcastPosition >= 0
-    ? nowcastPosition
-    : response.length();
+  const int pastKey = response.indexOf("\"past\"");
+  const int arrayStart = pastKey >= 0
+    ? response.indexOf('[', pastKey)
+    : -1;
+  const int arrayEnd = arrayStart >= 0
+    ? response.indexOf(']', arrayStart)
+    : -1;
 
-  const int pathKey = response.lastIndexOf("\"path\"", searchEnd);
-  const int timeKey = response.lastIndexOf("\"time\"", pathKey);
-
-  if (pathKey < 0 || timeKey < 0) {
+  if (arrayStart < 0 || arrayEnd < 0) {
     return false;
   }
 
-  if (!jsonStringInRange(
-        response,
-        "path",
-        pathKey,
-        searchEnd,
-        pathOut
-      )) {
-    return false;
-  }
+  int position = arrayStart + 1;
 
-  double frameTime = 0.0;
+  while (position < arrayEnd) {
+    const int objectStart = response.indexOf('{', position);
 
-  if (!jsonNumberInRange(
+    if (objectStart < 0 || objectStart >= arrayEnd) {
+      break;
+    }
+
+    const int objectEnd = response.indexOf('}', objectStart + 1);
+
+    if (objectEnd < 0 || objectEnd > arrayEnd) {
+      break;
+    }
+
+    double frameTimeNumber = 0.0;
+    String framePath;
+
+    if (
+      jsonNumberInRange(
         response,
         "time",
-        timeKey,
-        pathKey,
-        frameTime
-      )) {
-    return false;
+        objectStart,
+        objectEnd + 1,
+        frameTimeNumber
+      ) &&
+      jsonStringInRange(
+        response,
+        "path",
+        objectStart,
+        objectEnd + 1,
+        framePath
+      )
+    ) {
+      RainViewerFrameDescriptor descriptor;
+      descriptor.frameTime =
+        static_cast<time_t>(llround(frameTimeNumber));
+
+      if (
+        descriptor.frameTime > 0 &&
+        framePath.length() > 0 &&
+        framePath.length() < sizeof(descriptor.path)
+      ) {
+        framePath.toCharArray(
+          descriptor.path,
+          sizeof(descriptor.path)
+        );
+
+        if (frameCountOut < WEATHER_RADAR_ANIMATION_FRAME_COUNT) {
+          framesOut[frameCountOut++] = descriptor;
+        } else {
+          size_t oldestIndex = 0;
+
+          for (
+            size_t index = 1;
+            index < WEATHER_RADAR_ANIMATION_FRAME_COUNT;
+            ++index
+          ) {
+            if (
+              framesOut[index].frameTime <
+              framesOut[oldestIndex].frameTime
+            ) {
+              oldestIndex = index;
+            }
+          }
+
+          if (
+            descriptor.frameTime >
+            framesOut[oldestIndex].frameTime
+          ) {
+            framesOut[oldestIndex] = descriptor;
+          }
+        }
+      }
+    }
+
+    position = objectEnd + 1;
   }
 
-  frameTimeOut = static_cast<time_t>(llround(frameTime));
-  return true;
+  for (size_t outer = 0; outer < frameCountOut; ++outer) {
+    for (size_t inner = outer + 1; inner < frameCountOut; ++inner) {
+      if (framesOut[inner].frameTime < framesOut[outer].frameTime) {
+        const RainViewerFrameDescriptor temporary = framesOut[outer];
+        framesOut[outer] = framesOut[inner];
+        framesOut[inner] = temporary;
+      }
+    }
+  }
+
+  return frameCountOut > 0;
 }
 
-bool fetchRainViewerRadar() {
+int weatherRadarFrameIndexForTime(time_t frameTime) {
+  for (size_t index = 0; index < weatherRadarFrameCountValue; ++index) {
+    if (
+      weatherRadarFrames[index].valid &&
+      weatherRadarFrames[index].frameTime == frameTime &&
+      SD.exists(
+        weatherRadarFramePathForSlot(
+          weatherRadarFrames[index].slot
+        ).c_str()
+      )
+    ) {
+      return static_cast<int>(index);
+    }
+  }
+
+  return -1;
+}
+
+uint8_t allocateWeatherRadarCandidateSlot(size_t candidateIndex) {
+  for (
+    uint8_t slot = 0;
+    slot < WEATHER_RADAR_ANIMATION_FRAME_COUNT;
+    ++slot
+  ) {
+    bool alreadyAssigned = false;
+
+    for (
+      size_t index = 0;
+      index < weatherRadarRefreshCandidateCount;
+      ++index
+    ) {
+      const WeatherRadarRefreshCandidate &candidate =
+        weatherRadarRefreshCandidates[index];
+
+      if (
+        candidate.valid &&
+        candidate.slot == slot
+      ) {
+        alreadyAssigned = true;
+        break;
+      }
+    }
+
+    if (!alreadyAssigned) {
+      for (size_t index = 0; index < candidateIndex; ++index) {
+        const WeatherRadarRefreshCandidate &candidate =
+          weatherRadarRefreshCandidates[index];
+
+        if (
+          candidate.needsDownload &&
+          candidate.slot == slot
+        ) {
+          alreadyAssigned = true;
+          break;
+        }
+      }
+    }
+
+    if (!alreadyAssigned) {
+      return slot;
+    }
+  }
+
+  return static_cast<uint8_t>(
+    candidateIndex % WEATHER_RADAR_ANIMATION_FRAME_COUNT
+  );
+}
+
+void commitWeatherRadarRefreshCandidates() {
+  const time_t previouslySelectedTime =
+    weatherRadarSelectedFrameIndexValue < weatherRadarFrameCountValue
+      ? weatherRadarFrames[weatherRadarSelectedFrameIndexValue].frameTime
+      : 0;
+
+  WeatherRadarFrameRecord committed[WEATHER_RADAR_ANIMATION_FRAME_COUNT] {};
+  size_t committedCount = 0;
+  bool usedSlots[WEATHER_RADAR_ANIMATION_FRAME_COUNT] = {false};
+
+  for (
+    size_t index = 0;
+    index < weatherRadarRefreshCandidateCount;
+    ++index
+  ) {
+    const WeatherRadarRefreshCandidate &candidate =
+      weatherRadarRefreshCandidates[index];
+
+    if (
+      !candidate.valid ||
+      candidate.slot >= WEATHER_RADAR_ANIMATION_FRAME_COUNT ||
+      candidate.frameTime <= 0 ||
+      !SD.exists(weatherRadarFramePathForSlot(candidate.slot).c_str())
+    ) {
+      continue;
+    }
+
+    committed[committedCount].valid = 1;
+    committed[committedCount].slot = candidate.slot;
+    committed[committedCount].frameTime = candidate.frameTime;
+    usedSlots[candidate.slot] = true;
+    ++committedCount;
+  }
+
+  weatherRadarRefreshActive = false;
+
+  if (committedCount == 0) {
+    radarLastError = "No radar animation frames downloaded";
+    return;
+  }
+
+  for (
+    uint8_t slot = 0;
+    slot < WEATHER_RADAR_ANIMATION_FRAME_COUNT;
+    ++slot
+  ) {
+    if (!usedSlots[slot]) {
+      SD.remove(weatherRadarFramePathForSlot(slot).c_str());
+    }
+  }
+
+  clearWeatherRadarFrames();
+
+  for (size_t index = 0; index < committedCount; ++index) {
+    weatherRadarFrames[index] = committed[index];
+  }
+
+  weatherRadarFrameCountValue = committedCount;
+
+  if (
+    weatherRadarDisplayModeValue ==
+      WeatherRadarDisplayMode::Latest
+  ) {
+    // LATEST always follows the newest committed timestamp. A refresh can
+    // therefore update the open radar page without requiring any playback
+    // controls or manual frame selection.
+    weatherRadarSelectedFrameIndexValue = committedCount - 1;
+    weatherRadarAnimationPlayingValue = false;
+  } else {
+    // LOOP keeps the currently displayed timestamp when it still exists. New
+    // timestamps quietly join the next pass through the sequence rather than
+    // interrupting the frame currently on screen.
+    weatherRadarSelectedFrameIndexValue = 0;
+
+    for (size_t index = 0; index < committedCount; ++index) {
+      if (weatherRadarFrames[index].frameTime == previouslySelectedTime) {
+        weatherRadarSelectedFrameIndexValue = index;
+        break;
+      }
+    }
+
+    weatherRadarAnimationPlayingValue = committedCount > 1;
+  }
+
+  weatherRadarInfo.valid = true;
+  weatherRadarInfo.latitude = locationGridSettings.homeLatitude;
+  weatherRadarInfo.longitude = locationGridSettings.homeLongitude;
+  weatherRadarInfo.fetchedAt = time(nullptr);
+  weatherRadarInfo.frameTime =
+    weatherRadarFrames[committedCount - 1].frameTime;
+  weatherRadarInfo.zoom = WEATHER_RADAR_ZOOM;
+
+  saveWeatherRadarCache();
+  saveWeatherRadarAnimationCache();
+  SD.remove(WEATHER_RADAR_IMAGE_FILE);
+
+  if (committedCount < weatherRadarRefreshCandidateCount) {
+    radarLastError =
+      String("Cached ") + String(committedCount) + "/" +
+      String(weatherRadarRefreshCandidateCount) + " radar frames";
+  } else {
+    radarLastError = weatherBaseMapLastError;
+  }
+
+  Serial.printf(
+    "Weather radar animation: %u frames, latest=%lld at %.4f, %.4f\n",
+    static_cast<unsigned>(committedCount),
+    static_cast<long long>(weatherRadarInfo.frameTime),
+    weatherRadarInfo.latitude,
+    weatherRadarInfo.longitude
+  );
+}
+
+bool beginRainViewerRadarRefresh() {
   if (
     WiFi.status() != WL_CONNECTED ||
     !weatherFeatureAvailable() ||
@@ -1401,13 +2135,10 @@ bool fetchRainViewerRadar() {
     return false;
   }
 
-  // The basemap changes only when the location crosses a tile boundary.
-  // Download only missing current-view tiles; existing files remain cached.
   ensureWeatherBaseMapTiles();
 
   WiFiClientSecure metadataClient;
   metadataClient.setInsecure();
-
   HTTPClient metadataHttp;
 
   if (!metadataHttp.begin(
@@ -1436,24 +2167,81 @@ bool fetchRainViewerRadar() {
   const String metadata = metadataHttp.getString();
   metadataHttp.end();
 
+  RainViewerFrameDescriptor descriptors[WEATHER_RADAR_ANIMATION_FRAME_COUNT];
+  size_t descriptorCount = 0;
   String host;
-  String framePath;
-  time_t frameTime = 0;
 
-  if (!parseRainViewerMetadata(
+  if (!parseRainViewerMetadataFrames(
         metadata,
         host,
-        framePath,
-        frameTime
+        descriptors,
+        descriptorCount
       )) {
     radarLastError = "RainViewer metadata parse failed";
     return false;
   }
 
+  weatherRadarRefreshHost = host;
+  weatherRadarRefreshCandidateCount = descriptorCount;
+  bool downloadNeeded = false;
+
+  for (
+    size_t index = 0;
+    index < WEATHER_RADAR_ANIMATION_FRAME_COUNT;
+    ++index
+  ) {
+    weatherRadarRefreshCandidates[index] = WeatherRadarRefreshCandidate();
+  }
+
+  for (size_t index = 0; index < descriptorCount; ++index) {
+    WeatherRadarRefreshCandidate &candidate =
+      weatherRadarRefreshCandidates[index];
+    candidate.frameTime = descriptors[index].frameTime;
+    strlcpy(candidate.path, descriptors[index].path, sizeof(candidate.path));
+
+    const int existingIndex =
+      weatherRadarFrameIndexForTime(candidate.frameTime);
+
+    if (existingIndex >= 0) {
+      candidate.slot = weatherRadarFrames[existingIndex].slot;
+      candidate.valid = 1;
+      candidate.needsDownload = 0;
+    }
+  }
+
+  for (size_t index = 0; index < descriptorCount; ++index) {
+    WeatherRadarRefreshCandidate &candidate =
+      weatherRadarRefreshCandidates[index];
+
+    if (candidate.valid) {
+      continue;
+    }
+
+    candidate.slot = allocateWeatherRadarCandidateSlot(index);
+    candidate.needsDownload = 1;
+    downloadNeeded = true;
+  }
+
+  weatherRadarRefreshActive = downloadNeeded;
+
+  if (!downloadNeeded) {
+    commitWeatherRadarRefreshCandidates();
+    return true;
+  }
+
+  radarLastError = "Downloading radar animation";
+  return true;
+}
+
+bool downloadRainViewerRadarCandidate(
+  WeatherRadarRefreshCandidate &candidate
+) {
   String imageUrl;
-  imageUrl.reserve(host.length() + framePath.length() + 96);
-  imageUrl += host;
-  imageUrl += framePath;
+  imageUrl.reserve(
+    weatherRadarRefreshHost.length() + strlen(candidate.path) + 96
+  );
+  imageUrl += weatherRadarRefreshHost;
+  imageUrl += candidate.path;
   imageUrl += F("/256/");
   imageUrl += String(WEATHER_RADAR_ZOOM);
   imageUrl += '/';
@@ -1469,9 +2257,6 @@ bool fetchRainViewerRadar() {
         WEATHER_RADAR_TEMP_FILE,
         downloadError
       )) {
-    // Retry without separate snow colors. Both forms are documented by
-    // RainViewer, and this gives older or partially updated tile edges a
-    // second compatible request before reporting failure.
     imageUrl.replace("/2/1_1.png", "/2/1_0.png");
 
     if (!downloadUrlToSdFile(
@@ -1480,10 +2265,6 @@ bool fetchRainViewerRadar() {
           downloadError
         )) {
       radarLastError = String("RainViewer image: ") + downloadError;
-      Serial.printf(
-        "RainViewer radar download failed: %s\n",
-        downloadError.c_str()
-      );
       return false;
     }
   }
@@ -1494,61 +2275,83 @@ bool fetchRainViewerRadar() {
     return false;
   }
 
+  const String destination =
+    weatherRadarFramePathForSlot(candidate.slot);
   SD.remove(WEATHER_RADAR_BACKUP_FILE);
-
-  const bool hadPreviousRadar =
-    SD.exists(WEATHER_RADAR_IMAGE_FILE);
+  const bool hadPrevious = SD.exists(destination.c_str());
 
   if (
-    hadPreviousRadar &&
-    !SD.rename(
-      WEATHER_RADAR_IMAGE_FILE,
-      WEATHER_RADAR_BACKUP_FILE
-    )
+    hadPrevious &&
+    !SD.rename(destination.c_str(), WEATHER_RADAR_BACKUP_FILE)
   ) {
     SD.remove(WEATHER_RADAR_TEMP_FILE);
-    radarLastError = "Could not preserve previous radar cache";
+    radarLastError = "Could not preserve previous radar frame";
     return false;
   }
 
-  if (!SD.rename(
-        WEATHER_RADAR_TEMP_FILE,
-        WEATHER_RADAR_IMAGE_FILE
-      )) {
+  if (!SD.rename(WEATHER_RADAR_TEMP_FILE, destination.c_str())) {
     SD.remove(WEATHER_RADAR_TEMP_FILE);
 
-    if (hadPreviousRadar) {
-      SD.rename(
-        WEATHER_RADAR_BACKUP_FILE,
-        WEATHER_RADAR_IMAGE_FILE
-      );
+    if (hadPrevious) {
+      SD.rename(WEATHER_RADAR_BACKUP_FILE, destination.c_str());
     }
 
-    radarLastError = "Could not install radar cache image";
+    radarLastError = "Could not install radar animation frame";
     return false;
   }
 
   SD.remove(WEATHER_RADAR_BACKUP_FILE);
+  return true;
+}
 
-  WeatherRadarInfo updated;
-  updated.valid = true;
-  updated.latitude = locationGridSettings.homeLatitude;
-  updated.longitude = locationGridSettings.homeLongitude;
-  updated.fetchedAt = time(nullptr);
-  updated.frameTime = frameTime;
-  updated.zoom = WEATHER_RADAR_ZOOM;
+bool continueRainViewerRadarRefresh() {
+  if (!weatherRadarRefreshActive) {
+    return false;
+  }
 
-  weatherRadarInfo = updated;
-  saveWeatherRadarCache();
-  radarLastError = weatherBaseMapLastError;
+  for (
+    size_t index = 0;
+    index < weatherRadarRefreshCandidateCount;
+    ++index
+  ) {
+    WeatherRadarRefreshCandidate &candidate =
+      weatherRadarRefreshCandidates[index];
 
-  Serial.printf(
-    "Weather radar: frame=%lld at %.4f, %.4f\n",
-    static_cast<long long>(weatherRadarInfo.frameTime),
-    weatherRadarInfo.latitude,
-    weatherRadarInfo.longitude
-  );
+    if (!candidate.needsDownload || candidate.attempted) {
+      continue;
+    }
 
+    candidate.attempted = 1;
+
+    if (downloadRainViewerRadarCandidate(candidate)) {
+      candidate.valid = 1;
+    }
+
+    bool morePending = false;
+
+    for (
+      size_t pendingIndex = 0;
+      pendingIndex < weatherRadarRefreshCandidateCount;
+      ++pendingIndex
+    ) {
+      if (
+        weatherRadarRefreshCandidates[pendingIndex].needsDownload &&
+        !weatherRadarRefreshCandidates[pendingIndex].attempted
+      ) {
+        morePending = true;
+        break;
+      }
+    }
+
+    if (!morePending) {
+      commitWeatherRadarRefreshCandidates();
+      return true;
+    }
+
+    return false;
+  }
+
+  commitWeatherRadarRefreshCandidates();
   return true;
 }
 
@@ -1824,20 +2627,287 @@ bool ensureWeatherBaseMapTiles() {
   return allReady;
 }
 
-bool drawWeatherRadarBaseMap() {
-  lcd.fillRect(
-    WEATHER_RADAR_IMAGE_X,
-    WEATHER_RADAR_IMAGE_Y,
-    WEATHER_RADAR_IMAGE_W,
-    WEATHER_RADAR_IMAGE_H,
-    0x0861
+bool weatherRadarBaseCacheHeaderMatches(
+  const WeatherRadarBaseCacheHeader &header
+) {
+  int32_t viewportLeft = 0;
+  int32_t viewportTop = 0;
+  int minimumTileX = 0;
+  int maximumTileX = 0;
+  int minimumTileY = 0;
+  int maximumTileY = 0;
+
+  weatherBaseTileRange(
+    viewportLeft,
+    viewportTop,
+    minimumTileX,
+    maximumTileX,
+    minimumTileY,
+    maximumTileY
   );
 
-  if (!weatherBaseMapTilesAvailableForSavedLocation()) {
-    if (!weatherBaseMapLastError.length()) {
-      weatherBaseMapLastError =
-        "No cached OpenStreetMap tiles";
+  (void)minimumTileX;
+  (void)maximumTileX;
+  (void)minimumTileY;
+  (void)maximumTileY;
+
+  const uint32_t expectedChecksum = weatherChecksum(
+    reinterpret_cast<const uint8_t *>(&header),
+    sizeof(header) - sizeof(header.checksum)
+  );
+
+  return
+    header.magic == WEATHER_RADAR_BASE_CACHE_MAGIC &&
+    header.version == WEATHER_RADAR_BASE_CACHE_VERSION &&
+    header.recordSize == sizeof(WeatherRadarBaseCacheHeader) &&
+    header.viewportLeft == viewportLeft &&
+    header.viewportTop == viewportTop &&
+    header.width == WEATHER_RADAR_IMAGE_W &&
+    header.height == WEATHER_RADAR_IMAGE_H &&
+    header.zoom == WEATHER_RADAR_ZOOM &&
+    header.dataBytes ==
+      static_cast<uint32_t>(WEATHER_RADAR_IMAGE_W) *
+      static_cast<uint32_t>(WEATHER_RADAR_IMAGE_H) *
+      sizeof(uint16_t) &&
+    header.checksum == expectedChecksum;
+}
+
+bool openWeatherRadarBaseCacheForRead() {
+  if (weatherRadarBaseCacheReadFile) {
+    weatherRadarBaseCacheReadFile.close();
+  }
+
+  if (
+    !sdReady ||
+    !homeLocationIsConfigured() ||
+    !SD.exists(WEATHER_RADAR_BASE_CACHE_FILE)
+  ) {
+    weatherRadarBaseCacheReadyValue = false;
+    return false;
+  }
+
+  weatherRadarBaseCacheReadFile = SD.open(
+    WEATHER_RADAR_BASE_CACHE_FILE,
+    FILE_READ
+  );
+
+  if (!weatherRadarBaseCacheReadFile) {
+    weatherRadarBaseCacheReadyValue = false;
+    return false;
+  }
+
+  WeatherRadarBaseCacheHeader header;
+
+  const bool readOk =
+    weatherRadarBaseCacheReadFile.read(
+      reinterpret_cast<uint8_t *>(&header),
+      sizeof(header)
+    ) == static_cast<int>(sizeof(header));
+
+  const size_t expectedSize =
+    sizeof(WeatherRadarBaseCacheHeader) +
+    static_cast<size_t>(WEATHER_RADAR_IMAGE_W) *
+    static_cast<size_t>(WEATHER_RADAR_IMAGE_H) *
+    sizeof(uint16_t);
+
+  const bool valid =
+    readOk &&
+    weatherRadarBaseCacheHeaderMatches(header) &&
+    weatherRadarBaseCacheReadFile.size() == expectedSize;
+
+  if (!valid) {
+    weatherRadarBaseCacheReadFile.close();
+    weatherRadarBaseCacheReadyValue = false;
+    return false;
+  }
+
+  weatherRadarBaseCacheReadyValue = true;
+  return true;
+}
+
+bool buildWeatherRadarBaseCache() {
+  if (
+    !sdReady ||
+    !ensureWeatherDirectory() ||
+    !homeLocationIsConfigured() ||
+    !weatherBaseMapTilesAvailableForSavedLocation()
+  ) {
+    weatherRadarBaseCacheReadyValue = false;
+    return false;
+  }
+
+  int32_t viewportLeft = 0;
+  int32_t viewportTop = 0;
+  int minimumTileX = 0;
+  int maximumTileX = 0;
+  int minimumTileY = 0;
+  int maximumTileY = 0;
+
+  weatherBaseTileRange(
+    viewportLeft,
+    viewportTop,
+    minimumTileX,
+    maximumTileX,
+    minimumTileY,
+    maximumTileY
+  );
+
+  WeatherRadarBaseCacheHeader header;
+  header.viewportLeft = viewportLeft;
+  header.viewportTop = viewportTop;
+  header.checksum = weatherChecksum(
+    reinterpret_cast<const uint8_t *>(&header),
+    sizeof(header) - sizeof(header.checksum)
+  );
+
+  SD.remove(WEATHER_RADAR_BASE_CACHE_TEMP_FILE);
+  weatherRadarBaseCacheBuildFile = SD.open(
+    WEATHER_RADAR_BASE_CACHE_TEMP_FILE,
+    FILE_WRITE
+  );
+
+  if (!weatherRadarBaseCacheBuildFile) {
+    weatherBaseMapLastError = "Could not create radar basemap cache";
+    weatherRadarBaseCacheReadyValue = false;
+    return false;
+  }
+
+  bool ok = weatherRadarBaseCacheBuildFile.write(
+    reinterpret_cast<const uint8_t *>(&header),
+    sizeof(header)
+  ) == sizeof(header);
+
+  for (int x = 0; x < WEATHER_RADAR_IMAGE_W; ++x) {
+    weatherPngLine[x] = 0x0861;
+  }
+
+  const size_t lineBytes =
+    static_cast<size_t>(WEATHER_RADAR_IMAGE_W) * sizeof(uint16_t);
+
+  for (int y = 0; ok && y < WEATHER_RADAR_IMAGE_H; ++y) {
+    ok = weatherRadarBaseCacheBuildFile.write(
+      reinterpret_cast<const uint8_t *>(weatherPngLine),
+      lineBytes
+    ) == lineBytes;
+  }
+
+  weatherRadarBaseCacheBuildFile.flush();
+  weatherRadarBaseCacheBuildFile.close();
+
+  if (ok) {
+    // Reopen read/write so seek-based tile placement is honored even on FS
+    // implementations whose FILE_WRITE mode uses append semantics.
+    weatherRadarBaseCacheBuildFile = SD.open(
+      WEATHER_RADAR_BASE_CACHE_TEMP_FILE,
+      "r+"
+    );
+    ok = static_cast<bool>(weatherRadarBaseCacheBuildFile);
+  }
+
+  const int tileCount = 1 << WEATHER_RADAR_ZOOM;
+  weatherBaseTileWriteToCache = ok;
+
+  for (
+    int tileY = minimumTileY;
+    ok && tileY <= maximumTileY;
+    ++tileY
+  ) {
+    if (tileY < 0 || tileY >= tileCount) {
+      continue;
     }
+
+    for (
+      int tileX = minimumTileX;
+      ok && tileX <= maximumTileX;
+      ++tileX
+    ) {
+      const int wrappedX = weatherWrapBaseTileX(tileX);
+      const String path = weatherBaseTilePath(wrappedX, tileY);
+
+      const int destinationX =
+        WEATHER_RADAR_IMAGE_X +
+        tileX * WEATHER_RADAR_IMAGE_SIZE -
+        viewportLeft;
+
+      const int destinationY =
+        WEATHER_RADAR_IMAGE_Y +
+        tileY * WEATHER_RADAR_IMAGE_SIZE -
+        viewportTop;
+
+      if (!renderWeatherBaseTile(
+            path.c_str(),
+            destinationX,
+            destinationY
+          )) {
+        ok = false;
+        SD.remove(path.c_str());
+      }
+    }
+  }
+
+  weatherBaseTileWriteToCache = false;
+
+  if (weatherRadarBaseCacheBuildFile) {
+    weatherRadarBaseCacheBuildFile.flush();
+    weatherRadarBaseCacheBuildFile.close();
+  }
+
+  if (!ok) {
+    SD.remove(WEATHER_RADAR_BASE_CACHE_TEMP_FILE);
+    weatherBaseMapLastError = "Radar basemap cache build failed";
+    weatherRadarBaseCacheReadyValue = false;
+    return false;
+  }
+
+  SD.remove(WEATHER_RADAR_BASE_CACHE_FILE);
+
+  if (!SD.rename(
+        WEATHER_RADAR_BASE_CACHE_TEMP_FILE,
+        WEATHER_RADAR_BASE_CACHE_FILE
+      )) {
+    SD.remove(WEATHER_RADAR_BASE_CACHE_TEMP_FILE);
+    weatherBaseMapLastError = "Could not install radar basemap cache";
+    weatherRadarBaseCacheReadyValue = false;
+    return false;
+  }
+
+  if (!openWeatherRadarBaseCacheForRead()) {
+    SD.remove(WEATHER_RADAR_BASE_CACHE_FILE);
+    weatherBaseMapLastError = "Radar basemap cache validation failed";
+    weatherRadarBaseCacheReadyValue = false;
+    return false;
+  }
+
+  weatherRadarBaseCacheReadFile.close();
+  weatherBaseMapLastError = "";
+  weatherRadarBaseCacheReadyValue = true;
+  return true;
+}
+
+bool ensureWeatherRadarBaseCache() {
+  if (openWeatherRadarBaseCacheForRead()) {
+    weatherRadarBaseCacheReadFile.close();
+    return true;
+  }
+
+  SD.remove(WEATHER_RADAR_BASE_CACHE_FILE);
+  return buildWeatherRadarBaseCache();
+}
+
+bool drawWeatherRadarBaseMap() {
+  if (!weatherBaseMapTilesAvailableForSavedLocation()) {
+    lcd.fillRect(
+      WEATHER_RADAR_IMAGE_X,
+      WEATHER_RADAR_IMAGE_Y,
+      WEATHER_RADAR_IMAGE_W,
+      WEATHER_RADAR_IMAGE_H,
+      0x0861
+    );
+
+    if (!weatherBaseMapLastError.length()) {
+      weatherBaseMapLastError = "No cached OpenStreetMap tiles";
+    }
+
     return false;
   }
 
@@ -1894,21 +2964,83 @@ bool drawWeatherRadarBaseMap() {
 
   lcd.endWrite();
 
-  if (!allDrawn) {
-    weatherBaseMapLastError =
-      "OpenStreetMap tile decode failed";
-  } else {
-    weatherBaseMapLastError = "";
-  }
+  weatherBaseMapLastError =
+    allDrawn ? "" : "OpenStreetMap tile decode failed";
 
   return allDrawn;
 }
 
+bool drawWeatherRadarBaseCache() {
+  if (
+    !ensureWeatherRadarBandBuffer() ||
+    !ensureWeatherRadarBaseCache() ||
+    !openWeatherRadarBaseCacheForRead()
+  ) {
+    return false;
+  }
+
+  const size_t lineBytes =
+    static_cast<size_t>(WEATHER_RADAR_IMAGE_W) * sizeof(uint16_t);
+
+  size_t row = 0;
+  bool ok = true;
+
+  while (ok && row < WEATHER_RADAR_IMAGE_H) {
+    const size_t rows = min(
+      weatherRadarBandRowsCapacity,
+      static_cast<size_t>(WEATHER_RADAR_IMAGE_H) - row
+    );
+
+    const size_t bytes = rows * lineBytes;
+    const size_t offset =
+      sizeof(WeatherRadarBaseCacheHeader) + row * lineBytes;
+
+    ok =
+      weatherRadarBaseCacheReadFile.seek(offset) &&
+      weatherRadarBaseCacheReadFile.read(
+        reinterpret_cast<uint8_t *>(weatherRadarBandBuffer),
+        bytes
+      ) == static_cast<int>(bytes);
+
+    if (ok) {
+      lcd.pushImage(
+        WEATHER_RADAR_IMAGE_X,
+        WEATHER_RADAR_IMAGE_Y + static_cast<int>(row),
+        WEATHER_RADAR_IMAGE_W,
+        static_cast<int>(rows),
+        weatherRadarBandBuffer
+      );
+    }
+
+    row += rows;
+  }
+
+  weatherRadarBaseCacheReadFile.close();
+
+  if (!ok) {
+    weatherRadarBaseCacheReadyValue = false;
+    SD.remove(WEATHER_RADAR_BASE_CACHE_FILE);
+  }
+
+  return ok;
+}
+
 bool renderWeatherRadarOverlay() {
+  const String selectedFramePath = weatherRadarSelectedFramePath();
+
   if (
     !weatherRadarAvailableForSavedLocation() ||
-    !validateWeatherRadarPng(WEATHER_RADAR_IMAGE_FILE)
+    !selectedFramePath.length() ||
+    !SD.exists(selectedFramePath.c_str())
   ) {
+    return false;
+  }
+
+  if (
+    weatherRadarRenderToBandBuffer &&
+    !openWeatherRadarBaseCacheForRead()
+  ) {
+    weatherRadarDecodeFailed = true;
     return false;
   }
 
@@ -1917,9 +3049,12 @@ bool renderWeatherRadarOverlay() {
   weatherRadarDestinationX = WEATHER_RADAR_IMAGE_X;
   weatherRadarDestinationY = WEATHER_RADAR_IMAGE_Y;
   weatherRadarCropTop = WEATHER_RADAR_SOURCE_CROP_TOP;
+  weatherRadarBandStartRow = 0;
+  weatherRadarBandLineCount = 0;
+  weatherRadarBandLoadedRows = 0;
 
   const int openResult = png.open(
-    WEATHER_RADAR_IMAGE_FILE,
+    selectedFramePath.c_str(),
     weatherPngOpenCallback,
     weatherPngCloseCallback,
     weatherPngReadCallback,
@@ -1929,18 +3064,41 @@ bool renderWeatherRadarOverlay() {
 
   if (openResult != PNG_SUCCESS) {
     png.close();
+
+    if (weatherRadarBaseCacheReadFile) {
+      weatherRadarBaseCacheReadFile.close();
+    }
+
     return false;
   }
 
-  lcd.startWrite();
+  const bool valid =
+    png.getWidth() == WEATHER_RADAR_IMAGE_SIZE &&
+    png.getHeight() == WEATHER_RADAR_IMAGE_SIZE &&
+    !png.isInterlaced();
 
-  const bool ok =
+  if (!weatherRadarRenderToBandBuffer) {
+    lcd.startWrite();
+  }
+
+  const bool decoded =
+    valid &&
     png.decode(nullptr, PNG_CHECK_CRC) == PNG_SUCCESS &&
     !weatherRadarDecodeFailed;
 
-  lcd.endWrite();
+  if (weatherRadarRenderToBandBuffer) {
+    flushWeatherRadarBand();
+  } else {
+    lcd.endWrite();
+  }
+
   png.close();
-  return ok;
+
+  if (weatherRadarBaseCacheReadFile) {
+    weatherRadarBaseCacheReadFile.close();
+  }
+
+  return decoded;
 }
 
 void drawWeatherLocationCrosshair() {
@@ -2053,12 +3211,160 @@ bool weatherForecastAvailableForSavedLocation() {
 }
 
 bool weatherRadarAvailableForSavedLocation() {
+  if (
+    !weatherRadarInfo.valid ||
+    !sdReady ||
+    weatherRadarFrameCountValue == 0 ||
+    fabs(weatherRadarInfo.latitude - locationGridSettings.homeLatitude) > WEATHER_LOCATION_MATCH_DEGREES ||
+    fabs(weatherRadarInfo.longitude - locationGridSettings.homeLongitude) > WEATHER_LOCATION_MATCH_DEGREES
+  ) {
+    return false;
+  }
+
+  if (weatherRadarSelectedFrameIndexValue >= weatherRadarFrameCountValue) {
+    weatherRadarSelectedFrameIndexValue = weatherRadarFrameCountValue - 1;
+  }
+
+  const WeatherRadarFrameRecord &frame =
+    weatherRadarFrames[weatherRadarSelectedFrameIndexValue];
+
   return
-    weatherRadarInfo.valid &&
-    sdReady &&
-    SD.exists(WEATHER_RADAR_IMAGE_FILE) &&
-    fabs(weatherRadarInfo.latitude - locationGridSettings.homeLatitude) <= WEATHER_LOCATION_MATCH_DEGREES &&
-    fabs(weatherRadarInfo.longitude - locationGridSettings.homeLongitude) <= WEATHER_LOCATION_MATCH_DEGREES;
+    frame.valid &&
+    frame.slot < WEATHER_RADAR_ANIMATION_FRAME_COUNT &&
+    SD.exists(weatherRadarFramePathForSlot(frame.slot).c_str());
+}
+
+size_t weatherRadarFrameCount() {
+  return weatherRadarFrameCountValue;
+}
+
+size_t weatherRadarSelectedFrameIndex() {
+  return weatherRadarSelectedFrameIndexValue;
+}
+
+time_t weatherRadarFrameTime(size_t index) {
+  if (index >= weatherRadarFrameCountValue) {
+    return 0;
+  }
+
+  return weatherRadarFrames[index].frameTime;
+}
+
+String weatherRadarFramePath(size_t index) {
+  if (index >= weatherRadarFrameCountValue) {
+    return String();
+  }
+
+  const WeatherRadarFrameRecord &frame = weatherRadarFrames[index];
+
+  if (!frame.valid || frame.slot >= WEATHER_RADAR_ANIMATION_FRAME_COUNT) {
+    return String();
+  }
+
+  return weatherRadarFramePathForSlot(frame.slot);
+}
+
+time_t weatherRadarSelectedFrameTime() {
+  return weatherRadarFrameTime(weatherRadarSelectedFrameIndexValue);
+}
+
+String weatherRadarSelectedFramePath() {
+  return weatherRadarFramePath(weatherRadarSelectedFrameIndexValue);
+}
+
+void resetWeatherRadarDisplayMode() {
+  weatherRadarDisplayModeValue =
+    WeatherRadarDisplayMode::Latest;
+  weatherRadarAnimationPlayingValue = false;
+
+  weatherRadarSelectedFrameIndexValue =
+    weatherRadarFrameCountValue > 0
+      ? weatherRadarFrameCountValue - 1
+      : 0;
+}
+
+void selectWeatherRadarLatestMode() {
+  resetWeatherRadarDisplayMode();
+}
+
+void selectWeatherRadarLoopMode() {
+  if (weatherRadarFrameCountValue < 2) {
+    resetWeatherRadarDisplayMode();
+    return;
+  }
+
+  weatherRadarDisplayModeValue =
+    WeatherRadarDisplayMode::Loop;
+  weatherRadarSelectedFrameIndexValue = 0;
+  weatherRadarAnimationPlayingValue = true;
+}
+
+bool weatherRadarLatestModeIsSelected() {
+  return
+    weatherRadarDisplayModeValue ==
+      WeatherRadarDisplayMode::Latest;
+}
+
+bool weatherRadarLoopModeIsSelected() {
+  return
+    weatherRadarDisplayModeValue ==
+      WeatherRadarDisplayMode::Loop;
+}
+
+bool selectPreviousWeatherRadarFrame() {
+  if (weatherRadarFrameCountValue == 0) {
+    return false;
+  }
+
+  if (weatherRadarSelectedFrameIndexValue == 0) {
+    weatherRadarSelectedFrameIndexValue = weatherRadarFrameCountValue - 1;
+  } else {
+    --weatherRadarSelectedFrameIndexValue;
+  }
+
+  return true;
+}
+
+bool selectNextWeatherRadarFrame() {
+  if (weatherRadarFrameCountValue == 0) {
+    return false;
+  }
+
+  weatherRadarSelectedFrameIndexValue =
+    (weatherRadarSelectedFrameIndexValue + 1) % weatherRadarFrameCountValue;
+  return true;
+}
+
+bool weatherRadarAnimationIsPlaying() {
+  return
+    weatherRadarDisplayModeValue ==
+      WeatherRadarDisplayMode::Loop &&
+    weatherRadarAnimationPlayingValue &&
+    weatherRadarFrameCountValue > 1;
+}
+
+bool weatherRadarRefreshInProgress() {
+  return weatherRadarRefreshActive;
+}
+
+size_t weatherRadarRefreshCompletedCount() {
+  size_t completed = 0;
+
+  for (
+    size_t index = 0;
+    index < weatherRadarRefreshCandidateCount;
+    ++index
+  ) {
+    if (weatherRadarRefreshCandidates[index].valid) {
+      ++completed;
+    }
+  }
+
+  return completed;
+}
+
+size_t weatherRadarRefreshTargetCount() {
+  return weatherRadarRefreshCandidateCount;
 }
 
 bool weatherForecastIsStale() {
@@ -2090,9 +3396,16 @@ bool weatherRadarIsStale() {
 void initializeWeatherService() {
   weatherRefreshRequested = false;
   radarRefreshRequested = false;
+  weatherRadarRefreshActive = false;
+  weatherRadarRefreshCandidateCount = 0;
+  weatherRadarRefreshHost = "";
+  weatherRadarDisplayModeValue =
+    WeatherRadarDisplayMode::Latest;
+  weatherRadarAnimationPlayingValue = false;
   weatherLastError = "";
   radarLastError = "";
   weatherBaseMapLastError = "";
+  clearWeatherRadarFrames();
 
   if (
     !homeLocationIsConfigured() ||
@@ -2107,6 +3420,10 @@ void initializeWeatherService() {
   loadWeatherForecastCache();
   loadWeatherRadarCache();
 
+  if (!loadWeatherRadarAnimationCache()) {
+    migrateLegacyWeatherRadarImage();
+  }
+
   if (!weatherForecastAvailableForSavedLocation()) {
     weatherForecast.valid = false;
   }
@@ -2116,9 +3433,10 @@ void initializeWeatherService() {
   }
 
   Serial.printf(
-    "Weather cache: forecast=%d radar=%d enabled=%d location=%d\n",
+    "Weather cache: forecast=%d radar=%d frames=%u enabled=%d location=%d\n",
     weatherForecast.valid,
     weatherRadarInfo.valid,
+    static_cast<unsigned>(weatherRadarFrameCountValue),
     weatherSettings.enabled,
     homeLocationIsConfigured()
   );
@@ -2156,8 +3474,10 @@ void serviceWeather() {
   if (!weatherFeatureAvailable()) {
     weatherRefreshRequested = false;
     radarRefreshRequested = false;
+    weatherRadarRefreshActive = false;
     weatherForecast.valid = false;
     weatherRadarInfo.valid = false;
+    clearWeatherRadarFrames();
 
     if (touchUiWeatherPageIsOpen()) {
       closeTouchUi(true);
@@ -2175,6 +3495,21 @@ void serviceWeather() {
   }
 
   const unsigned long now = millis();
+
+  if (
+    weatherRadarRefreshActive &&
+    WiFi.status() == WL_CONNECTED &&
+    sdReady &&
+    !renderState.fullRedrawInProgress
+  ) {
+    const bool completed = continueRainViewerRadarRefresh();
+
+    if (completed && touchUiWeatherPageIsOpen()) {
+      touchUiHandleWeatherUpdated();
+    }
+
+    return;
+  }
 
   const bool forecastDue =
     weatherRefreshRequested ||
@@ -2233,17 +3568,21 @@ void serviceWeather() {
     radarRefreshRequested = false;
     lastRadarAttemptAt = now;
 
+    bool radarDisplayChanged = false;
+
     if (
       baseMapDue &&
       !explicitRadarRefresh &&
       !weatherRadarIsStale()
     ) {
-      ensureWeatherBaseMapTiles();
+      radarDisplayChanged = ensureWeatherBaseMapTiles();
     } else {
-      fetchRainViewerRadar();
+      const bool refreshStarted = beginRainViewerRadarRefresh();
+      radarDisplayChanged =
+        refreshStarted && !weatherRadarRefreshActive;
     }
 
-    if (touchUiWeatherPageIsOpen()) {
+    if (radarDisplayChanged && touchUiWeatherPageIsOpen()) {
       touchUiHandleWeatherUpdated();
     }
   }
@@ -2500,8 +3839,32 @@ void renderWeatherButtonOverlay() {
 }
 
 bool drawWeatherRadarImage() {
-  const bool baseMapDrawn = drawWeatherRadarBaseMap();
-  const bool radarDrawn = renderWeatherRadarOverlay();
+  const bool bandBufferReady = ensureWeatherRadarBandBuffer();
+  const bool baseCacheReady =
+    bandBufferReady && ensureWeatherRadarBaseCache();
+
+  bool baseMapDrawn = false;
+  bool radarDrawn = false;
+
+  if (bandBufferReady && baseCacheReady) {
+    weatherRadarRenderToBandBuffer = true;
+    radarDrawn = renderWeatherRadarOverlay();
+    weatherRadarRenderToBandBuffer = false;
+    baseMapDrawn = true;
+
+    if (!radarDrawn) {
+      baseMapDrawn = drawWeatherRadarBaseCache();
+    }
+  } else {
+    // The minimum compositor allocation is only one 512-byte scanline. If
+    // even that or the SD basemap cache is unavailable, keep static/manual
+    // radar usable but do not autoplay the disruptive full redraw path.
+    weatherRadarAnimationPlayingValue = false;
+    weatherRadarRenderToBandBuffer = false;
+    baseMapDrawn = drawWeatherRadarBaseMap();
+    radarDrawn = renderWeatherRadarOverlay();
+  }
+
   drawWeatherLocationCrosshair();
 
   lcd.drawRect(
@@ -2517,10 +3880,26 @@ bool drawWeatherRadarImage() {
   } else if (
     baseMapDrawn &&
     radarDrawn &&
-    radarLastError.startsWith("OpenStreetMap")
+    (
+      radarLastError.startsWith("OpenStreetMap") ||
+      radarLastError.startsWith("Radar basemap") ||
+      radarLastError.startsWith("Smooth radar")
+    )
   ) {
     radarLastError = "";
   }
 
   return baseMapDrawn && radarDrawn;
+}
+
+bool weatherRadarSmoothPlaybackAvailable() {
+  return
+    weatherRadarBandBuffer != nullptr &&
+    weatherRadarBandRowsCapacity > 0 &&
+    weatherRadarBaseCacheReadyValue &&
+    !weatherRadarBandAllocationFailed;
+}
+
+void releaseWeatherRadarDisplayBuffer() {
+  releaseWeatherRadarDisplayBufferInternal();
 }
